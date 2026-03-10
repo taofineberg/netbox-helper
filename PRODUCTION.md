@@ -20,6 +20,8 @@ This guide covers deploying Netbox Helper in production with Gunicorn, SSL, and 
 
 ```bash
 cd /opt/netbox-csv-import
+python3 -m venv .venv
+.venv/bin/pip install --upgrade pip
 .venv/bin/pip install -r requirements.txt
 ```
 

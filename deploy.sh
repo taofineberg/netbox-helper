@@ -83,6 +83,17 @@ echo "✓ Directories created and permissions set"
 # Set file permissions
 echo ""
 echo "Setting file permissions..."
+if [ ! -f "$APP_DIR/settings.json" ]; then
+    if [ -f "$APP_DIR/settings.example.json" ]; then
+        cp "$APP_DIR/settings.example.json" "$APP_DIR/settings.json"
+    else
+        echo '{"users":[]}' > "$APP_DIR/settings.json"
+    fi
+fi
+mkdir -p "$APP_DIR/template-sync"
+if [ ! -f "$APP_DIR/template-sync/instances.json" ]; then
+    echo '{"instances":[]}' > "$APP_DIR/template-sync/instances.json"
+fi
 chown $APP_USER:$APP_GROUP "$APP_DIR/settings.json"
 chmod 600 "$APP_DIR/settings.json"
 chown -R $APP_USER:$APP_GROUP "$APP_DIR/template-sync"
