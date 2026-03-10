@@ -1,0 +1,1338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Netbox Template Sync</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg:       #0d1117;
+            --card:     #161b22;
+            --card2:    #1c2128;
+            --text:     #c9d1d9;
+            --muted:    #8b949e;
+            --accent:   #58a6ff;
+            --green:    #3fb950;
+            --red:      #f85149;
+            --orange:   #d97706;
+            --purple:   #a371f7;
+            --border:   #30363d;
+            --mono:     'JetBrains Mono', monospace;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .page { max-width: 1300px; margin: 0 auto; }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .header-title h1 { margin: 0; font-size: 1.4rem; color: #fff; }
+        .header-title p  { margin: 2px 0 0; font-size: 0.85rem; color: var(--muted); }
+
+        a.logout { color: var(--red); text-decoration: none; font-size: 0.88rem; font-weight: 600; }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin-bottom: 20px;
+        }
+
+        .card-title {
+            font-size: 0.78rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+            margin: 0 0 16px 0;
+        }
+
+        .top-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 900px) { .top-row { grid-template-columns: 1fr; } }
+
+        /* ── Buttons ── */
+        button {
+            padding: 7px 14px;
+            border-radius: 6px;
+            border: none;
+            font-weight: 600;
+            font-size: 0.82rem;
+            cursor: pointer;
+            transition: opacity 0.15s;
+            font-family: inherit;
+        }
+        button:disabled { opacity: 0.35; cursor: not-allowed; }
+        button:not(:disabled):hover { opacity: 0.82; }
+
+        .btn-primary { background: #238636; color: #fff; }
+        .btn-accent  { background: var(--accent); color: #fff; }
+        .btn-danger  { background: var(--red);   color: #fff; }
+        .btn-muted   { background: #30363d; color: var(--text); }
+        .btn-sm      { padding: 4px 10px; font-size: 0.75rem; }
+
+        /* ── Inputs ── */
+        input[type="text"], input[type="password"], input[type="url"] {
+            background: #0d1117;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            padding: 7px 10px;
+            font-size: 0.85rem;
+            font-family: inherit;
+            transition: border-color 0.2s;
+        }
+        input:focus { border-color: var(--accent); outline: none; }
+
+        select {
+            background: #0d1117;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            padding: 8px 10px;
+            font-size: 0.88rem;
+            font-family: inherit;
+            cursor: pointer;
+        }
+        select:focus { border-color: var(--accent); outline: none; }
+
+        /* ── Instances ── */
+        .inst-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+
+        .inst-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--card2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 14px;
+        }
+
+        .inst-info { flex: 1; min-width: 0; }
+        .inst-name { font-weight: 600; font-size: 0.9rem; color: #e6edf3; }
+        .inst-url  { font-size: 0.78rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        .inst-status { font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 8px; white-space: nowrap; }
+        .inst-status.ok      { background: rgba(63,185,80,0.15);  color: var(--green);  }
+        .inst-status.err     { background: rgba(248,81,73,0.15);  color: var(--red);    }
+        .inst-status.testing { background: rgba(88,166,255,0.15); color: var(--accent); }
+
+        .add-inst-form { display: none; }
+        .add-inst-form.open { display: block; }
+
+        .form-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+        .form-row input { flex: 1; min-width: 120px; }
+
+        /* ── Compare ── */
+        .compare-grid {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .inst-select-box label { font-size: 0.78rem; color: var(--muted); display: block; margin-bottom: 5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+        .inst-select-box select { width: 100%; }
+
+        .swap-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--muted);
+            font-size: 1.1rem;
+            padding: 8px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .swap-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+        .type-grid { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+
+        .type-item {
+            display: flex; align-items: center; gap: 6px;
+            background: var(--card2); border: 1px solid var(--border); border-radius: 6px;
+            padding: 7px 12px; cursor: pointer; transition: border-color 0.2s; user-select: none;
+        }
+        .type-item:hover { border-color: var(--accent); }
+        .type-item.checked { border-color: var(--accent); background: rgba(88,166,255,0.08); }
+        .type-item label { cursor: pointer; font-size: 0.84rem; font-weight: 500; }
+
+        /* ── Compare progress ── */
+        .compare-progress {
+            display: none;
+            margin-top: 14px;
+            padding: 12px 14px;
+            background: var(--card2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .compare-progress.visible { display: block; }
+
+        .cp-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .cp-text  { font-size: 0.83rem; color: var(--text); }
+        .cp-count { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); }
+
+        .prog-track {
+            height: 6px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .prog-fill {
+            height: 100%;
+            background: var(--accent);
+            border-radius: 3px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+        .prog-fill.done { background: var(--green); }
+
+        /* ── Stats ── */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .stat-box {
+            background: var(--card2); border: 1px solid var(--border); border-radius: 8px;
+            padding: 12px 14px; text-align: center; cursor: pointer; transition: border-color 0.2s;
+        }
+        .stat-box:hover { border-color: var(--accent); }
+        .stat-box.active-filter { border-color: var(--accent); background: rgba(88,166,255,0.07); }
+
+        .stat-val  { font-family: var(--mono); font-size: 1.6rem; font-weight: 700; line-height: 1; }
+        .stat-lbl  { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin-top: 4px; }
+
+        .stat-sync .stat-val { color: var(--green);  }
+        .stat-sync           { border-color: rgba(63,185,80,0.2); }
+        .stat-diff .stat-val { color: var(--accent); }
+        .stat-diff           { border-color: rgba(88,166,255,0.2); }
+        .stat-src  .stat-val { color: var(--orange); }
+        .stat-src            { border-color: rgba(215,119,6,0.2); }
+        .stat-dst  .stat-val { color: var(--purple); }
+        .stat-dst            { border-color: rgba(163,113,247,0.2); }
+
+        /* ── Health bar ── */
+        .health-wrap { margin-bottom: 14px; display: none; }
+        .health-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 6px;
+        }
+        .health-lbl { font-size: 0.75rem; color: var(--muted); }
+        .health-pct { font-family: var(--mono); font-size: 0.85rem; font-weight: 700; }
+
+        .health-track { height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; display: flex; }
+        .health-seg { height: 100%; transition: width 0.4s ease; }
+        .hs-sync { background: var(--green);  }
+        .hs-diff { background: var(--accent); }
+        .hs-src  { background: var(--orange); }
+        .hs-dst  { background: var(--purple); }
+
+        /* ── Per-type breakdown ── */
+        .breakdown-wrap { display: none; margin-bottom: 14px; }
+
+        .breakdown-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.82rem;
+        }
+        .breakdown-table th {
+            text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border);
+            color: var(--muted); font-size: 0.72rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.05em;
+        }
+        .breakdown-table td { padding: 6px 10px; border-bottom: 1px solid rgba(48,54,61,0.35); }
+        .breakdown-table tr:last-child td { border-bottom: none; }
+        .breakdown-table .num { font-family: var(--mono); text-align: right; }
+
+        /* ── Filter / sync bar ── */
+        .filter-bar { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
+        .filter-btn {
+            padding: 5px 12px; border-radius: 16px; border: 1px solid var(--border);
+            background: transparent; color: var(--muted); font-size: 0.78rem; cursor: pointer;
+            transition: all 0.15s;
+        }
+        .filter-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .filter-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+        .filter-spacer { flex: 1; }
+
+        .sync-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+        .sync-count { font-size: 0.82rem; color: var(--muted); }
+
+        /* ── Results table ── */
+        .results-table { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
+        .results-table th {
+            text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border);
+            color: var(--muted); font-size: 0.73rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.05em;
+        }
+        .results-table td { padding: 9px 10px; border-bottom: 1px solid rgba(48,54,61,0.4); vertical-align: middle; }
+        .results-table tr:last-child td { border-bottom: none; }
+        .results-table tr:hover td { background: rgba(255,255,255,0.02); }
+        .results-table tr.hidden { display: none; }
+
+        .template-name { font-weight: 600; font-family: var(--mono); font-size: 0.82rem; color: #e6edf3; }
+
+        /* ── Badges ── */
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+        .b-sync { background: rgba(63,185,80,0.15);  color: var(--green);  }
+        .b-diff { background: rgba(88,166,255,0.15); color: var(--accent); }
+        .b-src  { background: rgba(215,119,6,0.15);  color: var(--orange); }
+        .b-dst  { background: rgba(163,113,247,0.15);color: var(--purple); }
+
+        /* ── Modals ── */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.7); z-index: 100;
+            align-items: center; justify-content: center; padding: 20px;
+        }
+        .modal-overlay.open { display: flex; }
+
+        .modal {
+            background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+            width: 100%; max-width: 860px; max-height: 85vh;
+            display: flex; flex-direction: column;
+            box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+        }
+
+        .modal-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 16px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+        }
+        .modal-header h3 { margin: 0; font-size: 1rem; color: #e6edf3; }
+        .modal-subtitle   { font-size: 0.78rem; color: var(--muted); margin: 2px 0 0 0; }
+
+        .modal-close {
+            background: none; border: none; color: var(--muted); font-size: 1.2rem;
+            cursor: pointer; padding: 4px 8px; border-radius: 4px; line-height: 1;
+        }
+        .modal-close:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+
+        .modal-body { flex: 1; overflow-y: auto; padding: 0; }
+        .modal-footer {
+            padding: 14px 20px; border-top: 1px solid var(--border);
+            display: flex; justify-content: flex-end; gap: 10px; flex-shrink: 0;
+        }
+
+        /* ── Diff viewer ── */
+        .diff-viewer {
+            font-family: var(--mono); font-size: 12px; line-height: 1.6;
+            padding: 0; margin: 0; overflow-x: auto;
+        }
+        .diff-line { display: block; padding: 1px 16px; white-space: pre; }
+        .diff-line.add   { background: rgba(46,160,67,0.15); color: #3fb950; }
+        .diff-line.del   { background: rgba(248,81,73,0.12);  color: #f85149; }
+        .diff-line.ctx   { background: rgba(88,166,255,0.08); color: #58a6ff; }
+        .diff-line.plain { color: var(--muted); }
+        .diff-empty { color: var(--muted); font-family: var(--mono); font-size: 0.82rem; padding: 30px; text-align: center; }
+
+        /* ── Sync progress modal ── */
+        .sync-progress-modal { max-width: 560px; }
+
+        .sp-body { padding: 20px 24px; }
+
+        .sp-bar-wrap { margin-bottom: 16px; }
+        .sp-bar-header { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.82rem; }
+        .sp-count { font-family: var(--mono); font-weight: 700; }
+        .sp-bar { height: 8px; background: rgba(255,255,255,0.07); border-radius: 4px; overflow: hidden; }
+        .sp-fill { height: 100%; background: var(--accent); border-radius: 4px; transition: width 0.25s ease; width: 0%; }
+        .sp-fill.done { background: var(--green); }
+
+        .sp-current { font-size: 0.82rem; color: var(--muted); margin-bottom: 14px; min-height: 1.2em; }
+
+        .sp-log {
+            background: #010409;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px 12px;
+            max-height: 220px;
+            overflow-y: auto;
+            font-family: var(--mono);
+            font-size: 0.78rem;
+            line-height: 1.6;
+        }
+        .sp-line         { color: var(--muted); }
+        .sp-line.running { color: var(--accent); }
+        .sp-line.ok      { color: var(--green);  }
+        .sp-line.err     { color: var(--red);    }
+
+        /* ── Sync results ── */
+        .sync-result-list { padding: 16px 20px; }
+        .sync-result-item {
+            display: flex; align-items: flex-start; gap: 10px;
+            padding: 8px 0; border-bottom: 1px solid rgba(48,54,61,0.4);
+            font-size: 0.86rem;
+        }
+        .sync-result-item:last-child { border-bottom: none; }
+        .sync-result-name { font-family: var(--mono); font-size: 0.8rem; flex: 1; }
+        .sync-ok  { color: var(--green); flex-shrink: 0; }
+        .sync-err-msg { color: var(--red); font-size: 0.75rem; }
+
+        /* ── Spinner ── */
+        .spinner {
+            display: inline-block; width: 13px; height: 13px;
+            border: 2px solid rgba(88,166,255,0.25); border-top-color: var(--accent);
+            border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 5px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .empty-state { color: var(--muted); text-align: center; padding: 30px 0; font-size: 0.88rem; }
+
+        /* ── Toast ── */
+        #toast {
+            position: fixed; bottom: 24px; right: 24px;
+            background: var(--card2); border: 1px solid var(--border);
+            border-radius: 8px; padding: 12px 18px; font-size: 0.85rem; color: var(--text);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.4); z-index: 200;
+            opacity: 0; transform: translateY(10px); transition: all 0.25s;
+            pointer-events: none; max-width: 320px;
+        }
+        #toast.show { opacity: 1; transform: translateY(0); }
+        #toast.toast-ok  { border-color: rgba(63,185,80,0.4); }
+        #toast.toast-err { border-color: rgba(248,81,73,0.4); }
+
+        /* ── Inst edit form ── */
+        .inst-edit-form { display: none; }
+        .inst-edit-form.open { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; }
+        .inst-edit-form input { font-size: 0.82rem; }
+    </style>
+</head>
+<body>
+<div class="page">
+
+    <!-- Header -->
+    <header>
+        <div class="header-title">
+            <h1>⇄ Netbox Template Sync</h1>
+            <p>Compare and synchronise templates between Netbox instances</p>
+        </div>
+        <a class="logout" href="/logout">Logout</a>
+    </header>
+
+    <div class="top-row">
+
+        <!-- ── Instance Manager ── -->
+        <div class="card">
+            <p class="card-title">Netbox Instances</p>
+            <div id="instList" class="inst-list">
+                <div class="empty-state" id="instEmpty">No instances saved yet.</div>
+            </div>
+            <button class="btn-muted" id="showAddBtn" onclick="toggleAddForm()">+ Add Instance</button>
+            <div class="add-inst-form" id="addForm">
+                <div class="form-row" style="margin-top:10px;">
+                    <input type="text" id="newName" placeholder="Friendly name (e.g. Production)" style="flex:1.2;">
+                    <input type="text" id="newUrl"  placeholder="https://netbox.example.com" style="flex:2;">
+                </div>
+                <div class="form-row">
+                    <input type="password" id="newToken" placeholder="API Token" style="flex:1;">
+                </div>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn-primary" onclick="addInstance()">Save Instance</button>
+                    <button class="btn-muted"   onclick="toggleAddForm()">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Compare Controls ── -->
+        <div class="card">
+            <p class="card-title">Compare</p>
+
+            <div class="compare-grid">
+                <div class="inst-select-box">
+                    <label>Source</label>
+                    <select id="sourceSelect"><option value="">— Select instance —</option></select>
+                </div>
+                <button class="swap-btn" title="Swap" onclick="swapInstances()">⇄</button>
+                <div class="inst-select-box">
+                    <label>Destination</label>
+                    <select id="destSelect"><option value="">— Select instance —</option></select>
+                </div>
+            </div>
+
+            <p style="font-size:0.78rem; color:var(--muted); margin:0 0 10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;">Template Types</p>
+            <div class="type-grid" id="typeGrid"></div>
+
+            <button class="btn-accent" id="compareBtn" onclick="runCompare()">Compare Instances</button>
+
+            <!-- Compare progress (shown during compare) -->
+            <div class="compare-progress" id="compareProgress">
+                <div class="cp-header">
+                    <span class="cp-text" id="cpText">Starting…</span>
+                    <span class="cp-count" id="cpCount"></span>
+                </div>
+                <div class="prog-track">
+                    <div class="prog-fill" id="cpFill"></div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ── Results ── -->
+    <div class="card" id="resultsSection" style="display:none;">
+        <p class="card-title">Results</p>
+
+        <!-- Stat boxes -->
+        <div class="stats-row">
+            <div class="stat-box stat-sync" onclick="setFilter('in_sync')" id="statSync">
+                <div class="stat-val" id="cntSync">0</div>
+                <div class="stat-lbl">In Sync</div>
+            </div>
+            <div class="stat-box stat-diff" onclick="setFilter('different')" id="statDiff">
+                <div class="stat-val" id="cntDiff">0</div>
+                <div class="stat-lbl">Different</div>
+            </div>
+            <div class="stat-box stat-src" onclick="setFilter('source_only')" id="statSrc">
+                <div class="stat-val" id="cntSrc">0</div>
+                <div class="stat-lbl">Source Only</div>
+            </div>
+            <div class="stat-box stat-dst" onclick="setFilter('dest_only')" id="statDst">
+                <div class="stat-val" id="cntDst">0</div>
+                <div class="stat-lbl">Dest Only</div>
+            </div>
+        </div>
+
+        <!-- Health bar -->
+        <div class="health-wrap" id="healthWrap">
+            <div class="health-header">
+                <span class="health-lbl">Sync health</span>
+                <span class="health-pct" id="healthPct" style="color:var(--green);"></span>
+            </div>
+            <div class="health-track">
+                <div class="health-seg hs-sync" id="hSync"></div>
+                <div class="health-seg hs-diff" id="hDiff"></div>
+                <div class="health-seg hs-src"  id="hSrc"></div>
+                <div class="health-seg hs-dst"  id="hDst"></div>
+            </div>
+            <div style="display:flex; gap:16px; margin-top:6px; font-size:0.7rem; color:var(--muted);">
+                <span><span style="color:var(--green);">■</span> In Sync</span>
+                <span><span style="color:var(--accent);">■</span> Different</span>
+                <span><span style="color:var(--orange);">■</span> Source Only</span>
+                <span><span style="color:var(--purple);">■</span> Dest Only</span>
+            </div>
+        </div>
+
+        <!-- Per-type breakdown -->
+        <div class="breakdown-wrap" id="breakdownWrap">
+            <table class="breakdown-table" id="breakdownTable">
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th class="num">Total</th>
+                        <th class="num" style="color:var(--green);">In Sync</th>
+                        <th class="num" style="color:var(--accent);">Different</th>
+                        <th class="num" style="color:var(--orange);">Src Only</th>
+                        <th class="num" style="color:var(--purple);">Dst Only</th>
+                    </tr>
+                </thead>
+                <tbody id="breakdownBody"></tbody>
+            </table>
+        </div>
+
+        <!-- Errors -->
+        <div id="compareErrors" style="display:none; margin-bottom:14px;"></div>
+
+        <!-- Filter + sync bar -->
+        <div class="filter-bar">
+            <button class="filter-btn active" data-filter="all"          onclick="setFilter('all')">All</button>
+            <button class="filter-btn"         data-filter="different"   onclick="setFilter('different')">Different</button>
+            <button class="filter-btn"         data-filter="source_only" onclick="setFilter('source_only')">Source Only</button>
+            <button class="filter-btn"         data-filter="dest_only"   onclick="setFilter('dest_only')">Dest Only</button>
+            <button class="filter-btn"         data-filter="in_sync"     onclick="setFilter('in_sync')">In Sync</button>
+        </div>
+
+        <div class="sync-bar">
+            <input type="checkbox" id="selectAllCb" onchange="toggleSelectAll(this.checked)" title="Select all syncable">
+            <label for="selectAllCb" style="font-size:0.82rem; cursor:pointer;">Select all</label>
+            <span class="sync-count" id="syncCount">0 selected</span>
+            <button class="btn-primary" id="syncBtn" onclick="runSync()" disabled>Sync Selected → Destination</button>
+        </div>
+
+        <!-- Table -->
+        <div class="empty-state" id="tableEmpty" style="display:none;">No items match the current filter.</div>
+        <table class="results-table" id="resultsTable" style="display:none;">
+            <thead>
+                <tr>
+                    <th style="width:32px;"></th>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th style="text-align:right;">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+        </table>
+    </div>
+
+</div><!-- /page -->
+
+<!-- ── Diff Modal ── -->
+<div class="modal-overlay" id="diffModal">
+    <div class="modal">
+        <div class="modal-header">
+            <div>
+                <h3 id="diffModalTitle">Diff</h3>
+                <p class="modal-subtitle" id="diffModalSubtitle"></p>
+            </div>
+            <button class="modal-close" onclick="closeDiffModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <pre class="diff-viewer" id="diffViewer"></pre>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-primary" id="diffSyncBtn" onclick="syncFromModal()">Sync → Destination</button>
+            <button class="btn-muted" id="diffReverseSyncBtn" onclick="reverseSyncFromModal()" style="background:#5a3e00;color:#d97706;border:1px solid #7a5500;">← Sync to Source</button>
+            <button class="btn-muted" onclick="closeDiffModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── Sync Progress Modal ── -->
+<div class="modal-overlay" id="syncProgressModal">
+    <div class="modal sync-progress-modal">
+        <div class="modal-header">
+            <div>
+                <h3 id="spTitle">Syncing…</h3>
+                <p class="modal-subtitle" id="spSubtitle"></p>
+            </div>
+        </div>
+        <div class="modal-body">
+            <div class="sp-body">
+                <div class="sp-bar-wrap">
+                    <div class="sp-bar-header">
+                        <span id="spCurrent" class="sp-current"></span>
+                        <span class="sp-count"><span id="spDone">0</span> / <span id="spTotal">0</span></span>
+                    </div>
+                    <div class="sp-bar"><div class="sp-fill" id="spFill"></div></div>
+                </div>
+                <div class="sp-log" id="spLog"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Sync Results Modal ── -->
+<div class="modal-overlay" id="syncResultModal">
+    <div class="modal" style="max-width:600px;">
+        <div class="modal-header">
+            <div>
+                <h3>Sync Results</h3>
+                <p class="modal-subtitle" id="syncResultSubtitle"></p>
+            </div>
+            <button class="modal-close" onclick="closeSyncResultModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <div class="sync-result-list" id="syncResultList"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-accent" onclick="closeSyncResultModal(); runCompare()">Re-Compare</button>
+            <button class="btn-muted" onclick="closeSyncResultModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ============================================================
+// State
+// ============================================================
+let instances      = [];
+let templateTypes  = {};
+let compareResults = {};
+let currentFilter  = 'all';
+let selectedItems  = new Set();
+let diffModalItem  = null;
+let compareAborted = false;
+
+// ============================================================
+// Init
+// ============================================================
+(async function init() {
+    await Promise.all([loadInstances(), loadTemplateTypes()]);
+    buildTypeGrid();
+    renderInstances();
+    populateSelects();
+})();
+
+async function loadInstances() {
+    const r = await fetch('/api/instances');
+    instances = (await r.json()).instances || [];
+}
+
+async function loadTemplateTypes() {
+    const r = await fetch('/api/template-types');
+    templateTypes = await r.json();
+}
+
+// ============================================================
+// Toast
+// ============================================================
+let _tt;
+function toast(msg, type = 'ok') {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = `show toast-${type}`;
+    clearTimeout(_tt);
+    _tt = setTimeout(() => { el.className = ''; }, 3500);
+}
+
+// ============================================================
+// Template type checkboxes
+// ============================================================
+function buildTypeGrid() {
+    const grid = document.getElementById('typeGrid');
+    grid.innerHTML = '';
+    for (const [key, cfg] of Object.entries(templateTypes)) {
+        const id  = `tt_${key}`;
+        const div = document.createElement('div');
+        div.className = 'type-item checked';
+        div.dataset.key = key;
+        div.innerHTML = `
+            <input type="checkbox" id="${id}" value="${key}" checked onchange="toggleTypeItem(this)">
+            <label for="${id}">${cfg.label}</label>`;
+        grid.appendChild(div);
+    }
+}
+
+function toggleTypeItem(cb) {
+    cb.closest('.type-item').classList.toggle('checked', cb.checked);
+}
+
+function selectedTypes() {
+    return [...document.querySelectorAll('#typeGrid input:checked')].map(cb => cb.value);
+}
+
+// ============================================================
+// Instance management
+// ============================================================
+function renderInstances() {
+    const list  = document.getElementById('instList');
+    const empty = document.getElementById('instEmpty');
+    list.querySelectorAll('.inst-row').forEach(r => r.remove());
+
+    if (!instances.length) { empty.style.display = 'block'; return; }
+    empty.style.display = 'none';
+
+    for (const inst of instances) {
+        const div = document.createElement('div');
+        div.className = 'inst-row';
+        div.id = `inst_${inst.id}`;
+        div.innerHTML = `
+            <div class="inst-info">
+                <div class="inst-name">${esc(inst.name)}</div>
+                <div class="inst-url">${esc(inst.url)}</div>
+                <div class="inst-edit-form" id="editForm_${inst.id}">
+                    <input type="text"     id="editName_${inst.id}"  value="${esc(inst.name)}" placeholder="Name">
+                    <input type="text"     id="editUrl_${inst.id}"   value="${esc(inst.url)}"  placeholder="URL">
+                    <input type="password" id="editToken_${inst.id}" placeholder="New token (leave blank to keep)">
+                    <div style="display:flex;gap:6px;margin-top:4px;">
+                        <button class="btn-primary btn-sm" onclick="saveEdit('${inst.id}')">Save</button>
+                        <button class="btn-muted btn-sm"   onclick="cancelEdit('${inst.id}')">Cancel</button>
+                    </div>
+                </div>
+            </div>
+            <span class="inst-status" id="status_${inst.id}" style="display:none;"></span>
+            <button class="btn-muted btn-sm" onclick="testInst('${inst.id}')">Test</button>
+            <button class="btn-muted btn-sm" onclick="editInst('${inst.id}')">Edit</button>
+            <button class="btn-danger btn-sm" onclick="deleteInst('${inst.id}')">Delete</button>`;
+        list.insertBefore(div, empty);
+    }
+}
+
+function populateSelects() {
+    const src = document.getElementById('sourceSelect');
+    const dst = document.getElementById('destSelect');
+    const sv = src.value, dv = dst.value;
+    src.innerHTML = '<option value="">— Select instance —</option>';
+    dst.innerHTML = '<option value="">— Select instance —</option>';
+    for (const inst of instances) {
+        const o = `<option value="${inst.id}">${esc(inst.name)}</option>`;
+        src.insertAdjacentHTML('beforeend', o);
+        dst.insertAdjacentHTML('beforeend', o);
+    }
+    if (sv) src.value = sv;
+    if (dv) dst.value = dv;
+}
+
+function toggleAddForm() {
+    const f = document.getElementById('addForm');
+    f.classList.toggle('open');
+    if (f.classList.contains('open')) document.getElementById('newName').focus();
+}
+
+async function addInstance() {
+    const name  = document.getElementById('newName').value.trim();
+    const url   = document.getElementById('newUrl').value.trim();
+    const token = document.getElementById('newToken').value.trim();
+    if (!name || !url || !token) { toast('Name, URL, and token are required.', 'err'); return; }
+
+    const r = await fetch('/api/instances', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, url, token}),
+    });
+    const d = await r.json();
+    if (d.error) { toast(d.error, 'err'); return; }
+
+    instances.push(d.instance);
+    ['newName','newUrl','newToken'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('addForm').classList.remove('open');
+    renderInstances();
+    populateSelects();
+    toast(`Instance "${d.instance.name}" saved. Token encrypted at rest.`);
+}
+
+async function deleteInst(id) {
+    const inst = instances.find(i => i.id === id);
+    if (!inst || !confirm(`Delete instance "${inst.name}"?`)) return;
+    const r = await fetch(`/api/instances/${id}`, {method: 'DELETE'});
+    const d = await r.json();
+    if (d.error) { toast(d.error, 'err'); return; }
+    instances = instances.filter(i => i.id !== id);
+    renderInstances();
+    populateSelects();
+    toast(`Instance "${inst.name}" deleted.`);
+}
+
+async function testInst(id) {
+    const el = document.getElementById(`status_${id}`);
+    el.className = 'inst-status testing'; el.textContent = 'Testing…'; el.style.display = 'inline-block';
+    const r = await fetch(`/api/instances/${id}/test`, {method: 'POST'});
+    const d = await r.json();
+    if (d.ok) {
+        el.className = 'inst-status ok'; el.textContent = `✓ NB ${d.netbox_version}`;
+    } else {
+        el.className = 'inst-status err'; el.textContent = '✗ Failed';
+        toast(`Connection failed: ${d.error}`, 'err');
+    }
+}
+
+function editInst(id)   { document.getElementById(`editForm_${id}`).classList.toggle('open'); }
+function cancelEdit(id) { document.getElementById(`editForm_${id}`).classList.remove('open'); }
+
+async function saveEdit(id) {
+    const body = {};
+    const name  = document.getElementById(`editName_${id}`).value.trim();
+    const url   = document.getElementById(`editUrl_${id}`).value.trim();
+    const token = document.getElementById(`editToken_${id}`).value.trim();
+    if (name) body.name = name;
+    if (url)  body.url  = url;
+    if (token) body.token = token;
+
+    const r = await fetch(`/api/instances/${id}`, {
+        method: 'PATCH', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (d.error) { toast(d.error, 'err'); return; }
+    const idx = instances.findIndex(i => i.id === id);
+    if (idx !== -1) instances[idx] = {...instances[idx], ...d.instance};
+    renderInstances(); populateSelects();
+    toast(token ? 'Instance updated. New token encrypted.' : 'Instance updated.');
+}
+
+function swapInstances() {
+    const src = document.getElementById('sourceSelect');
+    const dst = document.getElementById('destSelect');
+    [src.value, dst.value] = [dst.value, src.value];
+}
+
+// ============================================================
+// Compare — loops per type, shows incremental progress
+// ============================================================
+async function runCompare() {
+    const sourceId = document.getElementById('sourceSelect').value;
+    const destId   = document.getElementById('destSelect').value;
+    const types    = selectedTypes();
+
+    if (!sourceId) { toast('Select a source instance.', 'err'); return; }
+    if (!destId)   { toast('Select a destination instance.', 'err'); return; }
+    if (sourceId === destId) { toast('Source and destination must be different.', 'err'); return; }
+    if (!types.length) { toast('Select at least one template type.', 'err'); return; }
+
+    const btn = document.getElementById('compareBtn');
+    btn.disabled = true;
+    compareAborted = false;
+
+    // Reset state
+    compareResults = {};
+    selectedItems.clear();
+    document.getElementById('selectAllCb').checked = false;
+
+    // Show results section + progress bar
+    const prog = document.getElementById('compareProgress');
+    prog.classList.add('visible');
+    document.getElementById('resultsSection').style.display = 'block';
+    document.getElementById('resultsSection').scrollIntoView({behavior: 'smooth'});
+
+    // Clear table and breakdown while re-comparing
+    document.getElementById('resultsBody').innerHTML = '';
+    document.getElementById('resultsTable').style.display = 'none';
+    document.getElementById('tableEmpty').style.display  = 'none';
+    document.getElementById('breakdownWrap').style.display = 'none';
+    document.getElementById('healthWrap').style.display    = 'none';
+
+    const allErrors = {};
+    const fill = document.getElementById('cpFill');
+    const cpText  = document.getElementById('cpText');
+    const cpCount = document.getElementById('cpCount');
+
+    for (let i = 0; i < types.length; i++) {
+        if (compareAborted) break;
+        const tt    = types[i];
+        const label = templateTypes[tt]?.label || tt;
+
+        fill.style.width  = `${(i / types.length) * 100}%`;
+        cpText.innerHTML  = `<span class="spinner"></span> ${label}`;
+        cpCount.textContent = `${i + 1} / ${types.length}`;
+
+        try {
+            const r = await fetch('/api/compare', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({source_id: sourceId, dest_id: destId, template_types: [tt]}),
+            });
+            const d = await r.json();
+            if (d.results[tt]) compareResults[tt] = d.results[tt];
+            if (d.errors[tt])  allErrors[tt]      = d.errors[tt];
+        } catch(e) {
+            allErrors[tt] = e.message;
+        }
+
+        // Render partial results after each type
+        renderResults(allErrors);
+    }
+
+    // Complete
+    fill.classList.add('done');
+    fill.style.width  = '100%';
+    cpText.textContent = 'Compare complete';
+    cpCount.textContent = `${types.length} / ${types.length}`;
+    setTimeout(() => { prog.classList.remove('visible'); fill.classList.remove('done'); }, 1800);
+
+    btn.disabled = false;
+    btn.textContent = 'Compare Instances';
+}
+
+// ============================================================
+// Render results (called after each type completes)
+// ============================================================
+function renderResults(errors) {
+    // Errors banner
+    const errDiv = document.getElementById('compareErrors');
+    if (Object.keys(errors).length) {
+        errDiv.style.display = 'block';
+        errDiv.innerHTML = Object.entries(errors).map(([tt, msg]) =>
+            `<div style="background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.25);border-radius:6px;padding:8px 12px;margin-bottom:6px;font-size:0.83rem;">
+                <strong style="color:var(--red);">${esc(templateTypes[tt]?.label || tt)}:</strong> ${esc(msg)}
+             </div>`
+        ).join('');
+    } else {
+        errDiv.style.display = 'none';
+    }
+
+    // Aggregate totals
+    let gSync = 0, gDiff = 0, gSrc = 0, gDst = 0;
+    const tbody = document.getElementById('resultsBody');
+    tbody.innerHTML = '';
+    const bdBody = document.getElementById('breakdownBody');
+    bdBody.innerHTML = '';
+
+    for (const [tt, section] of Object.entries(compareResults)) {
+        let tSync = 0, tDiff = 0, tSrc = 0, tDst = 0;
+
+        for (const item of section.items) {
+            const s = item.status;
+            if (s === 'in_sync')     { gSync++; tSync++; }
+            if (s === 'different')   { gDiff++; tDiff++; }
+            if (s === 'source_only') { gSrc++;  tSrc++;  }
+            if (s === 'dest_only')   { gDst++;  tDst++;  }
+
+            const key      = `${tt}::${item.name}`;
+            const canSync  = (s === 'different' || s === 'source_only');
+            const badge    = {
+                in_sync:     '<span class="badge b-sync">In Sync</span>',
+                different:   '<span class="badge b-diff">Different</span>',
+                source_only: '<span class="badge b-src">Source Only</span>',
+                dest_only:   '<span class="badge b-dst">Dest Only</span>',
+            }[s] || '';
+
+            const diffBtn = item.diff
+                ? `<button class="btn-muted btn-sm" onclick="openDiff('${esc(tt)}','${esc(item.name)}')">View Diff</button>`
+                : '';
+            const syncBtn = canSync
+                ? `<button class="btn-primary btn-sm" onclick="syncOne('${esc(tt)}','${esc(item.name)}')">Sync →</button>`
+                : '';
+
+            const tr = document.createElement('tr');
+            tr.dataset.status = s;
+            tr.dataset.key    = key;
+            tr.innerHTML = `
+                <td>${canSync ? `<input type="checkbox" class="sync-cb" data-key="${esc(key)}" onchange="onCbChange(this)"${selectedItems.has(key)?'checked':''}>` : ''}</td>
+                <td><span class="template-name">${esc(item.name)}</span></td>
+                <td style="color:var(--muted);font-size:0.8rem;">${esc(section.label)}</td>
+                <td>${badge}</td>
+                <td style="text-align:right;display:flex;gap:6px;justify-content:flex-end;">${diffBtn}${syncBtn}</td>`;
+            tbody.appendChild(tr);
+        }
+
+        // Per-type breakdown row
+        const total  = tSync + tDiff + tSrc + tDst;
+        const issues = tDiff + tSrc + tDst;
+        const issueHtml = issues > 0
+            ? `<span style="color:var(--red); font-weight:600;">${issues}</span>`
+            : `<span style="color:var(--muted);">0</span>`;
+
+        const btr = document.createElement('tr');
+        btr.innerHTML = `
+            <td>${esc(section.label)}</td>
+            <td class="num">${total}</td>
+            <td class="num" style="color:var(--green);">${tSync}</td>
+            <td class="num" style="color:var(--accent);">${tDiff}</td>
+            <td class="num" style="color:var(--orange);">${tSrc}</td>
+            <td class="num" style="color:var(--purple);">${tDst}</td>`;
+        bdBody.appendChild(btr);
+    }
+
+    const total = gSync + gDiff + gSrc + gDst;
+
+    // Update stat boxes
+    document.getElementById('cntSync').textContent = gSync;
+    document.getElementById('cntDiff').textContent = gDiff;
+    document.getElementById('cntSrc').textContent  = gSrc;
+    document.getElementById('cntDst').textContent  = gDst;
+
+    // Health bar
+    if (total > 0) {
+        const hw = document.getElementById('healthWrap');
+        hw.style.display = 'block';
+        const pct = Math.round((gSync / total) * 100);
+        document.getElementById('healthPct').textContent = `${pct}% in sync`;
+        document.getElementById('healthPct').style.color = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--orange)' : 'var(--red)';
+        document.getElementById('hSync').style.width = `${(gSync/total)*100}%`;
+        document.getElementById('hDiff').style.width = `${(gDiff/total)*100}%`;
+        document.getElementById('hSrc').style.width  = `${(gSrc/total)*100}%`;
+        document.getElementById('hDst').style.width  = `${(gDst/total)*100}%`;
+    }
+
+    // Per-type breakdown
+    if (Object.keys(compareResults).length > 0) {
+        document.getElementById('breakdownWrap').style.display = 'block';
+    }
+
+    // Table visibility
+    document.getElementById('resultsTable').style.display = total ? 'table' : 'none';
+    document.getElementById('tableEmpty').style.display   = total ? 'none'  : 'block';
+
+    applyFilter(currentFilter);
+    updateSyncBar();
+}
+
+// ============================================================
+// Filter
+// ============================================================
+function setFilter(filter) {
+    currentFilter = filter;
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === filter);
+    });
+    const filterStatMap = {in_sync:'statSync', different:'statDiff', source_only:'statSrc', dest_only:'statDst'};
+    document.querySelectorAll('.stat-box').forEach(b => b.classList.remove('active-filter'));
+    if (filterStatMap[filter]) document.getElementById(filterStatMap[filter]).classList.add('active-filter');
+    applyFilter(filter);
+}
+
+function applyFilter(filter) {
+    let visible = 0;
+    document.querySelectorAll('#resultsBody tr').forEach(tr => {
+        const show = filter === 'all' || tr.dataset.status === filter;
+        tr.classList.toggle('hidden', !show);
+        if (show) visible++;
+    });
+    const total = document.querySelectorAll('#resultsBody tr').length;
+    document.getElementById('tableEmpty').style.display   = total && !visible ? 'block' : 'none';
+    if (total) document.getElementById('resultsTable').style.display = 'table';
+}
+
+// ============================================================
+// Checkbox / selection
+// ============================================================
+function onCbChange(cb) {
+    if (cb.checked) selectedItems.add(cb.dataset.key);
+    else            selectedItems.delete(cb.dataset.key);
+    updateSyncBar();
+}
+
+function toggleSelectAll(checked) {
+    document.querySelectorAll('.sync-cb').forEach(cb => {
+        if (cb.closest('tr').classList.contains('hidden')) return;
+        cb.checked = checked;
+        if (checked) selectedItems.add(cb.dataset.key);
+        else         selectedItems.delete(cb.dataset.key);
+    });
+    updateSyncBar();
+}
+
+function updateSyncBar() {
+    const n = selectedItems.size;
+    document.getElementById('syncCount').textContent = `${n} selected`;
+    document.getElementById('syncBtn').disabled = n === 0;
+}
+
+// ============================================================
+// Diff modal
+// ============================================================
+function openDiff(tt, name) {
+    const section = compareResults[tt];
+    if (!section) return;
+    const item = section.items.find(i => i.name === name);
+    if (!item) return;
+
+    diffModalItem = {template_type: tt, name, status: item.status};
+    document.getElementById('diffModalTitle').textContent = name;
+    document.getElementById('diffModalSubtitle').textContent =
+        `${section.label} · ${statusLabel(item.status)}`;
+
+    const viewer = document.getElementById('diffViewer');
+    viewer.innerHTML = '';
+
+    if (!item.diff || !item.diff.length) {
+        viewer.innerHTML = '<span class="diff-empty">No textual diff available.</span>';
+    } else {
+        for (const line of item.diff) {
+            const span = document.createElement('span');
+            span.className = 'diff-line ' + classifyDiffLine(line);
+            span.textContent = line;
+            viewer.appendChild(span);
+        }
+    }
+
+    const canSync    = item.status === 'different' || item.status === 'source_only';
+    const canReverse = item.status === 'different' || item.status === 'dest_only';
+    document.getElementById('diffSyncBtn').style.display        = canSync    ? '' : 'none';
+    document.getElementById('diffReverseSyncBtn').style.display = canReverse ? '' : 'none';
+    document.getElementById('diffModal').classList.add('open');
+}
+
+function classifyDiffLine(line) {
+    if (line.startsWith('+++') || line.startsWith('---')) return 'ctx';
+    if (line.startsWith('+')) return 'add';
+    if (line.startsWith('-')) return 'del';
+    if (line.startsWith('@@')) return 'ctx';
+    return 'plain';
+}
+
+function closeDiffModal() {
+    document.getElementById('diffModal').classList.remove('open');
+    diffModalItem = null;
+}
+
+async function syncFromModal() {
+    if (!diffModalItem) return;
+    const item = {...diffModalItem};   // save before closeDiffModal() nulls it
+    closeDiffModal();
+    await doSync([`${item.template_type}::${item.name}`], true, false);
+}
+
+async function reverseSyncFromModal() {
+    if (!diffModalItem) return;
+    const item = {...diffModalItem};
+    closeDiffModal();
+    await doSync([`${item.template_type}::${item.name}`], true, true);
+}
+
+// ============================================================
+// Sync — per-item loop with live progress modal
+// ============================================================
+async function syncOne(tt, name) {
+    await doSync([`${tt}::${name}`]);
+}
+
+async function runSync() {
+    if (!selectedItems.size) return;
+    await doSync([...selectedItems]);
+}
+
+async function doSync(keys, skipConfirm = false, reverse = false) {
+    let sourceId = document.getElementById('sourceSelect').value;
+    let destId   = document.getElementById('destSelect').value;
+    if (reverse) [sourceId, destId] = [destId, sourceId];
+    const inst = instances.find(i => i.id === destId);
+    const destName = inst ? inst.name : 'destination';
+
+    if (!skipConfirm && !confirm(`Sync ${keys.length} item(s) to ${destName}?\n\nThis will create or update records in the destination.`)) return;
+
+    // Open progress modal
+    const modal = document.getElementById('syncProgressModal');
+    document.getElementById('spTitle').textContent    = `Syncing to ${destName}`;
+    document.getElementById('spSubtitle').textContent = `${keys.length} item${keys.length !== 1 ? 's' : ''} queued`;
+    document.getElementById('spTotal').textContent    = keys.length;
+    document.getElementById('spDone').textContent     = '0';
+    document.getElementById('spFill').style.width     = '0%';
+    document.getElementById('spFill').classList.remove('done');
+    document.getElementById('spCurrent').textContent  = 'Starting…';
+    document.getElementById('spLog').innerHTML        = '';
+    modal.classList.add('open');
+
+    document.getElementById('syncBtn').disabled = true;
+
+    const results = [];
+
+    for (let i = 0; i < keys.length; i++) {
+        const [tt, ...rest] = keys[i].split('::');
+        const name      = rest.join('::');
+        const typeLabel = templateTypes[tt]?.label || tt;
+
+        // Update progress bar
+        document.getElementById('spDone').textContent    = i;
+        document.getElementById('spFill').style.width    = `${(i / keys.length) * 100}%`;
+        document.getElementById('spCurrent').textContent = `${name}  (${typeLabel})`;
+
+        // Add log line (running)
+        const log = document.getElementById('spLog');
+        const line = document.createElement('div');
+        line.className = 'sp-line running';
+        line.id = `spline_${i}`;
+        line.textContent = `● ${name}`;
+        log.appendChild(line);
+        log.scrollTop = log.scrollHeight;
+
+        try {
+            const r = await fetch('/api/sync', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    source_id: sourceId, dest_id: destId,
+                    items: [{template_type: tt, name}],
+                }),
+            });
+            const d = await r.json();
+            const res = d.results?.[0] || {name, template_type: tt, status: 'error', error: 'No result'};
+            results.push(res);
+
+            const el = document.getElementById(`spline_${i}`);
+            if (res.status === 'ok') {
+                el.className = 'sp-line ok';
+                el.textContent = `✓ ${name}`;
+            } else {
+                el.className = 'sp-line err';
+                el.textContent = `✗ ${name}: ${res.error || 'failed'}`;
+            }
+        } catch(e) {
+            results.push({name, template_type: tt, status: 'error', error: e.message});
+            const el = document.getElementById(`spline_${i}`);
+            el.className = 'sp-line err';
+            el.textContent = `✗ ${name}: ${e.message}`;
+        }
+
+        log.scrollTop = log.scrollHeight;
+    }
+
+    // Finish
+    document.getElementById('spDone').textContent    = keys.length;
+    document.getElementById('spFill').style.width    = '100%';
+    document.getElementById('spFill').classList.add('done');
+    document.getElementById('spCurrent').textContent = 'Done!';
+
+    setTimeout(() => {
+        modal.classList.remove('open');
+        showSyncResults(results);
+        selectedItems.clear();
+        document.getElementById('selectAllCb').checked = false;
+        document.getElementById('syncBtn').disabled = false;
+        updateSyncBar();
+    }, 600);
+}
+
+function showSyncResults(results) {
+    const ok  = results.filter(r => r.status === 'ok').length;
+    const err = results.filter(r => r.status === 'error').length;
+
+    document.getElementById('syncResultSubtitle').textContent = `${ok} succeeded · ${err} failed`;
+
+    document.getElementById('syncResultList').innerHTML = results.map(r => {
+        const typeLabel = templateTypes[r.template_type]?.label || r.template_type;
+        if (r.status === 'ok') {
+            return `<div class="sync-result-item">
+                <span class="sync-ok">✓</span>
+                <span class="sync-result-name">${esc(r.name)}</span>
+                <span style="color:var(--muted);font-size:0.78rem;">${esc(typeLabel)}</span>
+            </div>`;
+        } else {
+            return `<div class="sync-result-item" style="flex-wrap:wrap;">
+                <span style="color:var(--red);">✗</span>
+                <span class="sync-result-name">${esc(r.name)}</span>
+                <span style="color:var(--muted);font-size:0.78rem;">${esc(typeLabel)}</span>
+                <div class="sync-err-msg" style="width:100%; padding-left:20px;">${esc(r.error || '')}</div>
+            </div>`;
+        }
+    }).join('');
+
+    document.getElementById('syncResultModal').classList.add('open');
+}
+
+function closeSyncResultModal() {
+    document.getElementById('syncResultModal').classList.remove('open');
+}
+
+// ============================================================
+// Utilities
+// ============================================================
+function statusLabel(s) {
+    return {in_sync:'In Sync', different:'Different', source_only:'Source Only', dest_only:'Dest Only'}[s] || s;
+}
+
+function esc(str) {
+    return String(str ?? '')
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Close modals on overlay click
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', e => {
+        if (e.target === overlay && overlay.id !== 'syncProgressModal')
+            overlay.classList.remove('open');
+    });
+});
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay.open').forEach(m => {
+            if (m.id !== 'syncProgressModal') m.classList.remove('open');
+        });
+    }
+});
+</script>
+</body>
+</html>

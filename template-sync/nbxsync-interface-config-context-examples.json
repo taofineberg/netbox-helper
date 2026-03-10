@@ -1,0 +1,111 @@
+{
+  "_description": "Zabbix host-interface config-context examples. Use one of these under config_context.interface.",
+  "_usage": "Paste the selected example object as config_context.interface on the device/site/role.",
+  "_notes": [
+    "type can be 1/2/3/4 or Agent/SNMP/IPMI/JMX",
+    "use_ip can be true/false or 1/0",
+    "SNMPv2 uses snmp_community",
+    "SNMPv3 uses security_name + security_level + auth/priv settings"
+  ],
+  "examples": {
+    "agent": {
+      "interface": {
+        "type": "Agent",
+        "interface_type": 1,
+        "use_ip": true,
+        "dns": "",
+        "port": 10050,
+        "main": 1,
+        "tls_connect": 1,
+        "tls_accept": [1]
+      }
+    },
+    "snmp_v2c": {
+      "interface": {
+        "type": "SNMP",
+        "interface_type": 1,
+        "use_ip": true,
+        "dns": "",
+        "port": 161,
+        "main": 1,
+        "snmp_version": 2,
+        "snmp_usebulk": true,
+        "snmp_pushcommunity": true,
+        "snmp_community": "{$SNMP_COMMUNITY}",
+        "snmpv3_context_name": "",
+        "snmpv3_security_name": "",
+        "snmpv3_security_level": 0,
+        "snmpv3_authentication_protocol": 0,
+        "snmpv3_authentication_passphrase": "",
+        "snmpv3_privacy_protocol": 0,
+        "snmpv3_privacy_passphrase": ""
+      }
+    },
+    "snmp_v3_auth_no_priv": {
+      "interface": {
+        "type": 2,
+        "interface_type": 1,
+        "use_ip": true,
+        "dns": "",
+        "port": 161,
+        "main": 1,
+        "snmp_version": 3,
+        "snmp_usebulk": true,
+        "snmp_pushcommunity": true,
+        "snmp_community": "",
+        "snmpv3_context_name": "",
+        "snmpv3_security_name": "{$SNMP_SECURITYNAME}",
+        "snmpv3_security_level": 1,
+        "snmpv3_authentication_protocol": 1,
+        "snmpv3_authentication_passphrase": "{$SNMP_AUTH_PASSPHRASE}",
+        "snmpv3_privacy_protocol": 0,
+        "snmpv3_privacy_passphrase": ""
+      }
+    },
+    "snmp_v3_auth_priv": {
+      "interface": {
+        "type": "SNMP",
+        "interface_type": 1,
+        "use_ip": true,
+        "dns": "",
+        "port": 161,
+        "main": 1,
+        "snmp_version": 3,
+        "snmp_usebulk": true,
+        "snmp_pushcommunity": true,
+        "snmp_community": "",
+        "snmpv3_context_name": "",
+        "snmpv3_security_name": "{$SNMP_SECURITYNAME}",
+        "snmpv3_security_level": 2,
+        "snmpv3_authentication_protocol": 3,
+        "snmpv3_authentication_passphrase": "{$SNMP_AUTH_PASSPHRASE}",
+        "snmpv3_privacy_protocol": 3,
+        "snmpv3_privacy_passphrase": "{$SNMP_PRIV_PASSPHRASE}"
+      }
+    },
+    "ipmi": {
+      "interface": {
+        "type": "IPMI",
+        "interface_type": 1,
+        "use_ip": true,
+        "dns": "",
+        "port": 623,
+        "main": 1,
+        "ipmi_authtype": -1,
+        "ipmi_privilege": 2,
+        "ipmi_username": "admin",
+        "ipmi_password": "changeme"
+      }
+    },
+    "jmx": {
+      "interface": {
+        "type": "JMX",
+        "interface_type": 1,
+        "use_ip": true,
+        "dns": "",
+        "port": 12345,
+        "main": 1
+      }
+    }
+  }
+}

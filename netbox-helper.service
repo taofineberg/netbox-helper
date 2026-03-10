@@ -1,0 +1,40 @@
+[Unit]
+Description=Netbox Helper Production Service
+After=network.target
+Documentation=file:///opt/netbox-csv-import/PRODUCTION.md
+
+[Service]
+Type=notify
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/netbox-csv-import
+
+# Environment variables (customize as needed)
+Environment="PORT=8000"
+Environment="GUNICORN_BIND=127.0.0.1:8000"
+Environment="NBH_ALLOW_LOOPBACK_INSTANCES=true"
+Environment="GUNICORN_WORKERS=1"
+Environment="GUNICORN_TIMEOUT=120"
+Environment="GUNICORN_MAX_REQUESTS=1000"
+
+# For direct SSL in Gunicorn (not recommended with Nginx):
+# Environment="NBH_SSL_ENABLED=true"
+# Environment="NBH_SSL_CERTFILE=/etc/ssl/certs/netbox-helper.pem"
+# Environment="NBH_SSL_KEYFILE=/etc/ssl/private/netbox-helper.key"
+
+# Start command using Gunicorn from virtual environment
+ExecStart=/opt/netbox-csv-import/.venv/bin/gunicorn -c gunicorn_config.py netbox_helper:app
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+
+# Security hardening
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/netbox-csv-import
+
+[Install]
+WantedBy=multi-user.target
