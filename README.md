@@ -536,7 +536,9 @@ The application supports **SSL/TLS via settings.json**, but SSL certificates are
 
 1. **Install production dependencies**:
    ```bash
-   pip install -r requirements.txt  # Now includes gunicorn>=21.0.0
+   python3 -m venv .venv
+   .venv/bin/pip install --upgrade pip
+   .venv/bin/pip install -r requirements.txt  # Includes gunicorn>=21.0.0
    ```
 
 2. **Run automated setup** (recommended):
