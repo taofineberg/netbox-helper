@@ -8,6 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="${APP_DIR:-$SCRIPT_DIR}"
 APP_USER="www-data"
 APP_GROUP="www-data"
+VENV_DIR="$APP_DIR/.venv"
 
 echo "=========================================="
 echo "Netbox Helper Production Deployment Setup"
@@ -61,8 +62,13 @@ fi
 echo ""
 echo "Installing Python dependencies..."
 cd "$APP_DIR"
-pip3 install --upgrade pip setuptools wheel
-pip3 install -r requirements.txt
+if [ ! -x "$VENV_DIR/bin/pip" ]; then
+    echo "Creating Python virtual environment at $VENV_DIR..."
+    rm -rf "$VENV_DIR"
+    python3 -m venv "$VENV_DIR"
+fi
+"$VENV_DIR/bin/pip" install --upgrade pip setuptools wheel
+"$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"
 echo "✓ Python dependencies installed"
 
 # Create necessary directories
@@ -86,7 +92,7 @@ echo "✓ File permissions configured"
 # Install systemd service
 echo ""
 echo "Installing systemd service..."
-cp "$APP_DIR/netbox-helper.service" /etc/systemd/system/
+sed "s|/opt/netbox-csv-import|$APP_DIR|g" "$APP_DIR/netbox-helper.service" > /etc/systemd/system/netbox-helper.service
 systemctl daemon-reload
 echo "✓ Systemd service installed"
 
