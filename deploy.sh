@@ -76,8 +76,13 @@ echo ""
 echo "Creating application directories..."
 mkdir -p "$APP_DIR/logs"
 mkdir -p "$APP_DIR/uploads"
+touch "$APP_DIR/logs/netbox_import.log"
+touch "$APP_DIR/logs/failures.csv"
+touch "$APP_DIR/logs/nbsync_job.log"
 chown -R $APP_USER:$APP_GROUP "$APP_DIR/logs"
 chown -R $APP_USER:$APP_GROUP "$APP_DIR/uploads"
+chmod 750 "$APP_DIR/logs" "$APP_DIR/uploads"
+chmod 640 "$APP_DIR/logs/netbox_import.log" "$APP_DIR/logs/failures.csv" "$APP_DIR/logs/nbsync_job.log"
 echo "✓ Directories created and permissions set"
 
 # Set file permissions
@@ -90,12 +95,23 @@ if [ ! -f "$APP_DIR/settings.json" ]; then
         echo '{"users":[]}' > "$APP_DIR/settings.json"
     fi
 fi
+if [ ! -f "$APP_DIR/.env" ]; then
+    SECRET_KEY=$("$VENV_DIR/bin/python3" -c "import secrets; print(secrets.token_hex(32))")
+    cat > "$APP_DIR/.env" <<EOF
+LOG_LEVEL=INFO
+LOG_FILE=logs/netbox_import.log
+SECRET_KEY=${SECRET_KEY}
+PORT=8000
+EOF
+fi
 mkdir -p "$APP_DIR/template-sync"
 if [ ! -f "$APP_DIR/template-sync/instances.json" ]; then
     echo '{"instances":[]}' > "$APP_DIR/template-sync/instances.json"
 fi
 chown $APP_USER:$APP_GROUP "$APP_DIR/settings.json"
 chmod 600 "$APP_DIR/settings.json"
+chown $APP_USER:$APP_GROUP "$APP_DIR/.env"
+chmod 600 "$APP_DIR/.env"
 chown -R $APP_USER:$APP_GROUP "$APP_DIR/template-sync"
 chmod 750 "$APP_DIR/template-sync"
 echo "✓ File permissions configured"

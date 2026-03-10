@@ -31,13 +31,18 @@ from netbox_branching import ensure_branch_exists, resolve_branch_header_value
 load_dotenv()
 
 # Setup logging
+PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_DIR = os.path.join(PROJECT_DIR, 'logs')
+DEFAULT_LOG_FILE = os.path.join(LOG_DIR, 'netbox_import.log')
+FAILURES_CSV_FILE = os.path.join(LOG_DIR, 'failures.csv')
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
-LOG_FILE = os.getenv('LOG_FILE', 'netbox_import.log')
+LOG_FILE = os.getenv('LOG_FILE', DEFAULT_LOG_FILE)
 try:
     DEFAULT_IMPORT_WORKERS = int(os.getenv('NBH_IMPORT_WORKERS_DEFAULT', '6'))
 except Exception:
     DEFAULT_IMPORT_WORKERS = 6
 DEFAULT_IMPORT_WORKERS = max(1, min(12, DEFAULT_IMPORT_WORKERS))
+os.makedirs(os.path.dirname(os.path.abspath(LOG_FILE)), exist_ok=True)
 
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL),
@@ -453,7 +458,7 @@ class NetboxImporter:
             with self._result_lock:
                 self.stats[import_type]['errors'] += 1
                 try:
-                    csv_file = 'failures.csv'
+                    csv_file = FAILURES_CSV_FILE
                     file_exists = os.path.exists(csv_file)
                     with open(csv_file, 'a', newline='', encoding='utf-8') as f:
                         writer = csv.writer(f)
