@@ -4,7 +4,7 @@ After=network.target
 Documentation=file:///opt/netbox-csv-import/PRODUCTION.md
 
 [Service]
-Type=notify
+Type=simple
 User=www-data
 Group=www-data
 WorkingDirectory=/opt/netbox-csv-import
@@ -12,6 +12,7 @@ WorkingDirectory=/opt/netbox-csv-import
 # Environment variables (customize as needed)
 Environment="PORT=8000"
 Environment="GUNICORN_BIND=127.0.0.1:8000"
+Environment="LOG_FILE=logs/netbox_import.log"
 Environment="NBH_ALLOW_LOOPBACK_INSTANCES=true"
 Environment="GUNICORN_WORKERS=1"
 Environment="GUNICORN_TIMEOUT=120"

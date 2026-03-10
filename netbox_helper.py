@@ -123,6 +123,13 @@ def _requests_verify():
     return TLS_CA_BUNDLE if TLS_CA_BUNDLE else TLS_VERIFY
 
 
+PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_DIR = os.path.join(PROJECT_DIR, 'logs')
+UPLOAD_DIR = os.path.join(PROJECT_DIR, 'uploads')
+IMPORT_LOG_FILE = os.path.join(LOG_DIR, 'netbox_import.log')
+FAILURES_FILE = os.path.join(LOG_DIR, 'failures.csv')
+
+
 def _is_instance_url_allowed(raw_url):
     try:
         p = urlparse(str(raw_url or '').strip())
@@ -150,14 +157,14 @@ def _is_instance_url_allowed(raw_url):
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'netbox_helper_secret_key_change_me')
-app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_DIR
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = SESSION_COOKIE_SAMESITE
 app.config['SESSION_COOKIE_SECURE'] = SESSION_COOKIE_SECURE
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-os.makedirs('logs', exist_ok=True)
+os.makedirs(LOG_DIR, exist_ok=True)
 
 
 class _AccessPathFilter(logging.Filter):
@@ -291,7 +298,6 @@ login_attempts_lock = threading.Lock()
 # Zabbix runner state
 # ---------------------------------------------------------------------------
 
-PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 NBSYNC_SCRIPT = os.path.join(PROJECT_DIR, 'nbsync-helper.py')
 NBSYNC_LOG_FILE = os.path.join(PROJECT_DIR, 'logs', 'nbsync_job.log')
 NBSYNC_OPTIONS_FILE = os.path.join(PROJECT_DIR, 'template-sync', 'nbsync_options.json')
@@ -2569,7 +2575,7 @@ def _run_single_job(job):
     header = '\n'.join(header_parts)
 
     _log_to_job(job, header)
-    with open('netbox_import.log', 'w', encoding='utf-8') as f:
+    with open(IMPORT_LOG_FILE, 'w', encoding='utf-8') as f:
         f.write(header + '\n')
 
     job_handler = logging.FileHandler(log_path, encoding='utf-8')
@@ -2624,14 +2630,14 @@ def _run_single_job(job):
             msg = f"--- IMPORT STOPPED: {reason} ---"
         else:
             msg = "--- IMPORT STOPPED BY USER ---"
-        with open('netbox_import.log', 'a') as f:
+        with open(IMPORT_LOG_FILE, 'a') as f:
             f.write(msg + '\n')
         _log_to_job(job, msg)
         job['status'] = 'stopped'
         import_status['stopped'] = True
     except Exception as e:
         msg = f"FATAL ERROR: {str(e)}"
-        with open('netbox_import.log', 'a') as f:
+        with open(IMPORT_LOG_FILE, 'a') as f:
             f.write(msg + '\n')
         _log_to_job(job, msg)
         _capture_exception(
@@ -2738,11 +2744,11 @@ def run_retry_thread(file_path, dry_run, replace, delay=0.0, server_id=None, bra
             raise ValueError('Auto branch requested for retry but no branch could be derived')
         import_status['last_branch'] = resolved_branch or None
         if branch_auto and resolved_branch:
-            with open('netbox_import.log', 'a') as f:
+            with open(IMPORT_LOG_FILE, 'a') as f:
                 f.write(f"\n[AUTO-BRANCH] Retry resolved branch: {resolved_branch}\n")
 
         importer = NetboxImporter(
-            "failures.csv",
+            FAILURES_FILE,
             dry_run=dry_run,
             replace=replace,
             interactive=False,
@@ -2754,11 +2760,11 @@ def run_retry_thread(file_path, dry_run, replace, delay=0.0, server_id=None, bra
         importer.import_data(data, should_stop=check_stop, delay=delay)
 
     except ImportStopped:
-        with open('netbox_import.log', 'a') as f:
+        with open(IMPORT_LOG_FILE, 'a') as f:
             f.write("\n--- RETRY STOPPED BY USER ---\n")
         import_status['stopped'] = True
     except Exception as e:
-        with open('netbox_import.log', 'a') as f:
+        with open(IMPORT_LOG_FILE, 'a') as f:
             f.write(f"\nFATAL ERROR IN RETRY THREAD: {str(e)}\n")
         _capture_exception(
             e,
@@ -5354,7 +5360,7 @@ def netbox_site_export_generate_queue():
         shutil.copy2(result['file_path'], queued_path)
 
         job_id = uuid.uuid4().hex[:8]
-        log_file = os.path.join('logs', f'job_{job_id}.log')
+        log_file = os.path.join(LOG_DIR, f'job_{job_id}.log')
         job = {
             'id': job_id,
             'file_path': queued_path,
@@ -5512,7 +5518,7 @@ def netbox_import_export_queue():
         shutil.copy2(str(output_path), queued_path)
 
         job_id = uuid.uuid4().hex[:8]
-        log_file = os.path.join('logs', f'job_{job_id}.log')
+        log_file = os.path.join(LOG_DIR, f'job_{job_id}.log')
         job = {
             'id': job_id,
             'file_path': queued_path,
@@ -5624,7 +5630,7 @@ def enqueue_job():
         return jsonify({'error': str(e)}), 400
 
     job_id   = uuid.uuid4().hex[:8]
-    log_file = os.path.join('logs', f'job_{job_id}.log')
+    log_file = os.path.join(LOG_DIR, f'job_{job_id}.log')
 
     job = {
         'id': job_id,
@@ -5747,7 +5753,7 @@ def start_import():
         return jsonify({'error': str(e)}), 400
 
     job_id   = uuid.uuid4().hex[:8]
-    log_file = os.path.join('logs', f'job_{job_id}.log')
+    log_file = os.path.join(LOG_DIR, f'job_{job_id}.log')
     job = {
         'id': job_id,
         'file_path': file_path,
@@ -5765,7 +5771,7 @@ def start_import():
         'error': None,
     }
 
-    with open('netbox_import.log', 'w') as f:
+    with open(IMPORT_LOG_FILE, 'w') as f:
         f.write(f"--- Starting Import ({'Dry Run' if dry_run else 'Live Run'}) ---\n")
 
     with queue_lock:
@@ -5812,7 +5818,7 @@ def retry_failures():
     if import_status['running']:
         return jsonify({'error': 'An import is already in progress'}), 400
 
-    file_path = 'failures.csv'
+    file_path = FAILURES_FILE
     if not os.path.exists(file_path):
         return jsonify({'error': 'No failures to retry'}), 400
 
@@ -5829,7 +5835,7 @@ def retry_failures():
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
 
-    with open('netbox_import.log', 'w') as f:
+    with open(IMPORT_LOG_FILE, 'w') as f:
         f.write(f"--- Starting Retry of Failures ({'Dry Run' if dry_run else 'Live Run'}) ---\n")
 
     thread = threading.Thread(target=run_retry_thread, args=(file_path, dry_run, replace, delay, server_id, branch))
@@ -5840,7 +5846,7 @@ def retry_failures():
 @app.route('/clear-failures', methods=['POST'])
 @login_required
 def clear_failures():
-    file_path = 'failures.csv'
+    file_path = FAILURES_FILE
     if os.path.exists(file_path):
         try:
             os.remove(file_path)
@@ -5854,7 +5860,7 @@ def clear_failures():
 @login_required
 def get_status():
     status = import_status.copy()
-    status['has_failures'] = os.path.exists('failures.csv')
+    status['has_failures'] = os.path.exists(FAILURES_FILE)
     return jsonify(status)
 
 
@@ -5870,11 +5876,11 @@ def stream_logs():
             if requested_job_id:
                 requested = next((j for j in job_queue if j.get('id') == requested_job_id), None)
                 if requested:
-                    return str(requested.get('log_file') or 'netbox_import.log')
+                    return str(requested.get('log_file') or IMPORT_LOG_FILE)
             running = next((j for j in job_queue if j.get('status') == 'running'), None)
             if running:
-                return str(running.get('log_file') or 'netbox_import.log')
-        return 'netbox_import.log'
+                return str(running.get('log_file') or IMPORT_LOG_FILE)
+        return IMPORT_LOG_FILE
 
     def _open_stream_file(path, seek_end=False):
         directory = os.path.dirname(path)
@@ -7689,7 +7695,7 @@ def site_sync_start():
 
         job_id = uuid.uuid4().hex[:12]
         now_ts = time.time()
-        log_file = os.path.join('logs', f'site_sync_{job_id}.log')
+        log_file = os.path.join(LOG_DIR, f'site_sync_{job_id}.log')
         try:
             with open(log_file, 'w', encoding='utf-8') as f:
                 f.write(f"[{datetime.now().isoformat()}] Site sync job queued\n")
