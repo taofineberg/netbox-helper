@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#0d1117"/>
+  <rect x="32" y="24" width="1216" height="56" rx="10" fill="#161b22" stroke="#30363d"/>
+  <text x="56" y="60" font-family="Inter, Arial" font-size="24" fill="#e6edf3">Zabbix Tab</text>
+  <rect x="32" y="104" width="1216" height="260" rx="10" fill="#161b22" stroke="#30363d"/>
+  <text x="56" y="146" font-family="Inter, Arial" font-size="20" fill="#e6edf3">Planner &amp; Options</text>
+  <rect x="56" y="164" width="1168" height="176" rx="8" fill="#0b1016" stroke="#30363d"/>
+  <rect x="32" y="388" width="760" height="276" rx="10" fill="#161b22" stroke="#30363d"/>
+  <text x="56" y="430" font-family="Inter, Arial" font-size="20" fill="#e6edf3">Device Plan Table</text>
+  <rect x="56" y="446" width="712" height="194" rx="8" fill="#0b1016" stroke="#30363d"/>
+  <rect x="820" y="388" width="428" height="276" rx="10" fill="#161b22" stroke="#30363d"/>
+  <text x="846" y="430" font-family="Inter, Arial" font-size="20" fill="#e6edf3">Execution Results</text>
+  <rect x="846" y="446" width="376" height="194" rx="8" fill="#010409" stroke="#30363d"/>
+</svg>

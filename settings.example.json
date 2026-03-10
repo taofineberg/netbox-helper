@@ -1,0 +1,17 @@
+{
+  "users": [
+    {
+      "id": "admin000",
+      "username": "admin",
+      "password_hash": "scrypt:32768:8:1$gW4PAlODkpPGEKcJ$d392d776e0909a72713ac29bd83ca8eb7c2cf1e3513f5b416a11ffb6a4c1d376ab53bc7190357908995086e1a5c2fce372867f5463bc0ade11468a1f838fc680",
+      "role": "admin",
+      "must_change_password": true,
+      "created": "1970-01-01T00:00:00"
+    }
+  ],
+  "ssl": {
+    "enabled": false,
+    "certfile": "/path/to/cert.pem",
+    "keyfile": "/path/to/key.pem"
+  }
+}
