@@ -959,6 +959,11 @@
             <input type="file" id="nbimpXlsxInput" hidden accept=".xlsx,.xlsm">
             <span id="nbimpWorkbookLine" style="font-size:0.78rem; color:var(--muted);">Using workbook: data.xlsx</span>
         </div>
+        <div style="display:flex; align-items:center; gap:10px; margin-top:10px; flex-wrap:wrap;">
+            <button id="nbimpTemplateUploadBtn" class="btn-muted">Upload baseline CSV</button>
+            <input type="file" id="nbimpTemplateInput" hidden accept=".csv">
+            <span id="nbimpTemplateLine" style="font-size:0.78rem; color:var(--muted);">Using baseline: Netbox-import.csv</span>
+        </div>
         <div style="display:flex; gap:12px; margin-top:14px; flex-wrap:wrap; align-items:flex-end;">
             <div style="min-width:220px; flex:1;">
                 <label style="display:block; font-size:0.78rem; color:var(--muted); margin-bottom:6px;">B2 (Source Sheet)</label>
@@ -2315,7 +2320,10 @@ const nbimpExportBtn   = document.getElementById('nbimpExportBtn');
 const nbimpQueueBtn    = document.getElementById('nbimpQueueBtn');
 const nbimpUploadBtn   = document.getElementById('nbimpUploadBtn');
 const nbimpXlsxInput   = document.getElementById('nbimpXlsxInput');
+const nbimpTemplateUploadBtn = document.getElementById('nbimpTemplateUploadBtn');
+const nbimpTemplateInput = document.getElementById('nbimpTemplateInput');
 const nbimpWorkbookLine = document.getElementById('nbimpWorkbookLine');
+const nbimpTemplateLine = document.getElementById('nbimpTemplateLine');
 const nbimpSummary     = document.getElementById('nbimpSummary');
 const nbimpInfoLine    = document.getElementById('nbimpInfoLine');
 const nbimpPreviewHead = document.getElementById('nbimpPreviewHead');
@@ -2592,6 +2600,7 @@ function nbimpSetLoading(loading) {
     if (nbimpExportBtn) nbimpExportBtn.disabled = !!loading;
     if (nbimpQueueBtn) nbimpQueueBtn.disabled = !!loading;
     if (nbimpUploadBtn) nbimpUploadBtn.disabled = !!loading;
+    if (nbimpTemplateUploadBtn) nbimpTemplateUploadBtn.disabled = !!loading;
 }
 
 function nbsrcSetLoading(loading) {
@@ -2756,6 +2765,9 @@ async function nbimpLoadB2Options() {
         const r = await fetch('/netbox-import/api/options');
         const d = await r.json();
         if (d.error) throw new Error(d.error);
+        if (nbimpTemplateLine) {
+            nbimpTemplateLine.textContent = `Using baseline: ${d.template_name || 'Netbox-import.csv'}`;
+        }
         const opts = Array.isArray(d.b2_options) ? d.b2_options : [];
         nbimpB2Select.innerHTML = opts.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
         if (d.default_b2) nbimpB2Select.value = d.default_b2;
@@ -2792,6 +2804,34 @@ async function nbimpUploadWorkbook(file) {
     } finally {
         nbimpSetLoading(false);
         if (nbimpXlsxInput) nbimpXlsxInput.value = '';
+    }
+}
+
+async function nbimpUploadTemplateCsv(file) {
+    if (!file) return;
+    nbimpSetLoading(true);
+    if (nbimpTemplateLine) nbimpTemplateLine.textContent = `Uploading baseline: ${file.name}...`;
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const r = await fetch('/netbox-import/api/upload-template-csv', {
+            method: 'POST',
+            body: formData,
+        });
+        const d = await r.json();
+        if (d.error) throw new Error(d.error);
+        if (nbimpTemplateLine) {
+            nbimpTemplateLine.textContent = `Using baseline: ${d.template_name} (uploaded: ${d.filename})`;
+        }
+        nbimpInfoLine.textContent = 'Baseline CSV uploaded. Preview/export will use it first.';
+        toast(`Baseline uploaded: ${d.filename}`, 'ok');
+    } catch (err) {
+        if (nbimpTemplateLine) nbimpTemplateLine.textContent = `Baseline upload failed: ${err.message}`;
+        nbimpInfoLine.textContent = `Baseline upload failed: ${err.message}`;
+        toast(`Baseline upload failed: ${err.message}`, 'err');
+    } finally {
+        nbimpSetLoading(false);
+        if (nbimpTemplateInput) nbimpTemplateInput.value = '';
     }
 }
 
@@ -3355,6 +3395,16 @@ if (nbimpUploadBtn && nbimpXlsxInput) {
     nbimpXlsxInput.onchange = (e) => {
         const file = e.target.files && e.target.files[0];
         if (file) nbimpUploadWorkbook(file);
+    };
+}
+if (nbimpTemplateUploadBtn && nbimpTemplateInput) {
+    nbimpTemplateUploadBtn.onclick = () => {
+        nbimpTemplateInput.value = '';
+        nbimpTemplateInput.click();
+    };
+    nbimpTemplateInput.onchange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (file) nbimpUploadTemplateCsv(file);
     };
 }
 if (nbimpPreviewBtn) nbimpPreviewBtn.onclick = nbimpPreview;
