@@ -7,8 +7,8 @@ APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE_NAME="netbox-importer"
 LEGACY_SERVICES=("netbox-importer" "netbox-helper")
 SYSTEMD_DIR="/etc/systemd/system"
-APP_USER="netboxhelper"
-APP_GROUP="${APP_USER}"
+APP_USER="root"
+APP_GROUP="root"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "This setup script must run as root (or via sudo)."
@@ -51,11 +51,6 @@ echo "Installing dependencies..."
 "$APP_DIR/.venv/bin/pip" install --upgrade pip --quiet
 "$APP_DIR/.venv/bin/pip" install -r "$APP_DIR/requirements.txt" --quiet
 echo "Dependencies installed."
-
-if ! id -u "$APP_USER" >/dev/null 2>&1; then
-    echo "Creating service account: $APP_USER"
-    useradd --system --home "$APP_DIR" --shell /usr/sbin/nologin "$APP_USER"
-fi
 
 if [ ! -f "$APP_DIR/.env" ]; then
     echo ""
@@ -113,8 +108,8 @@ After=network.target
 Type=simple
 WorkingDirectory=${APP_DIR}
 ExecStart=${APP_DIR}/.venv/bin/python3 -u netbox_helper.py
-User=${APP_USER}
-Group=${APP_GROUP}
+User=root
+Group=root
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true

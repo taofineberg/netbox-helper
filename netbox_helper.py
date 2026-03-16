@@ -29,6 +29,7 @@ from datetime import datetime
 from flask import Flask, render_template, request, jsonify, Response, session, redirect, url_for, send_file, abort
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
 from netbox_importer import NetboxImporter, ImportStopped
 import logging
 from collections import defaultdict
@@ -111,6 +112,11 @@ LOGIN_LOCKOUT_SECONDS = max(60, int(os.getenv('NBH_LOGIN_LOCKOUT_SECONDS', '900'
 PASSWORD_MIN_LENGTH = max(10, int(os.getenv('NBH_PASSWORD_MIN_LENGTH', '12')))
 DEFAULT_IMPORT_WORKERS = max(1, min(12, int(os.getenv('NBH_IMPORT_WORKERS_DEFAULT', '6'))))
 QUIET_POLL_ACCESS_LOGS = _env_bool('NBH_QUIET_POLL_ACCESS_LOGS', True)
+PROXY_FIX_ENABLED = _env_bool('NBH_PROXY_FIX_ENABLED', True)
+PROXY_FIX_X_FOR = max(0, int(os.getenv('NBH_PROXY_FIX_X_FOR', '1') or '1'))
+PROXY_FIX_X_PROTO = max(0, int(os.getenv('NBH_PROXY_FIX_X_PROTO', '1') or '1'))
+PROXY_FIX_X_HOST = max(0, int(os.getenv('NBH_PROXY_FIX_X_HOST', '1') or '1'))
+PROXY_FIX_X_PORT = max(0, int(os.getenv('NBH_PROXY_FIX_X_PORT', '1') or '1'))
 INSTANCE_ALLOWED_HOSTS = {
     s.strip().lower()
     for s in str(os.getenv('NBH_ALLOWED_INSTANCE_HOSTS', '') or '').split(',')
@@ -194,6 +200,14 @@ def _is_instance_url_allowed(raw_url):
     return True, ''
 
 app = Flask(__name__)
+if PROXY_FIX_ENABLED:
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_for=PROXY_FIX_X_FOR,
+        x_proto=PROXY_FIX_X_PROTO,
+        x_host=PROXY_FIX_X_HOST,
+        x_port=PROXY_FIX_X_PORT,
+    )
 app.secret_key = os.getenv('SECRET_KEY', 'netbox_helper_secret_key_change_me')
 app.config['UPLOAD_FOLDER'] = UPLOAD_DIR
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024

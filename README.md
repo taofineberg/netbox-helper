@@ -356,7 +356,8 @@ What setup does now:
 2. Rebuilds `.venv` from scratch.
 3. Reinstalls dependencies from `requirements.txt`.
 4. Installs `netbox-importer.service` pointing to `netbox_helper.py`.
-5. Enables and restarts the service.
+5. Runs the service as `root`.
+6. Enables and restarts the service.
 
 Bundled starter data for a clean install:
 
