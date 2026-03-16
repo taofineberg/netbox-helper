@@ -43,6 +43,12 @@ except Exception:  # optional dependency
     sentry_sdk = None
     FlaskIntegration = None
 from export_netbox_config import (
+    XlsxReader,
+    get_cell,
+    _source_sheet_matrix,
+    _source_sheet_layout,
+    row_from_source_by_site,
+    header_col_index,
     list_b2_options,
     list_d7_options,
     build_netbox_import_export,
@@ -128,6 +134,38 @@ LOG_DIR = os.path.join(PROJECT_DIR, 'logs')
 UPLOAD_DIR = os.path.join(PROJECT_DIR, 'uploads')
 IMPORT_LOG_FILE = os.path.join(LOG_DIR, 'netbox_import.log')
 FAILURES_FILE = os.path.join(LOG_DIR, 'failures.csv')
+
+
+def _resolve_writable_data_dir():
+    """Choose a writable directory for workbook/template data files."""
+    configured = str(os.getenv('NBH_DATA_DIR', '') or '').strip()
+    candidates = []
+    if configured:
+        candidates.append(os.path.abspath(configured))
+    candidates.extend([
+        os.path.join(PROJECT_DIR, 'data'),
+        os.path.join(UPLOAD_DIR, 'data'),
+    ])
+
+    checked = []
+    for candidate in candidates:
+        checked.append(candidate)
+        try:
+            os.makedirs(candidate, exist_ok=True)
+        except OSError:
+            continue
+        if os.path.isdir(candidate) and os.access(candidate, os.W_OK | os.X_OK):
+            if candidate != checked[0]:
+                logging.warning(
+                    'Using fallback data directory %s because preferred locations were not writable.',
+                    candidate,
+                )
+            return candidate
+
+    raise OSError(
+        'No writable data directory available. Checked: '
+        + ', '.join(checked)
+    )
 
 
 def _is_instance_url_allowed(raw_url):
@@ -301,11 +339,13 @@ login_attempts_lock = threading.Lock()
 NBSYNC_SCRIPT = os.path.join(PROJECT_DIR, 'nbsync-helper.py')
 NBSYNC_LOG_FILE = os.path.join(PROJECT_DIR, 'logs', 'nbsync_job.log')
 NBSYNC_OPTIONS_FILE = os.path.join(PROJECT_DIR, 'template-sync', 'nbsync_options.json')
-NETBOX_DATA_DIR = os.path.join(PROJECT_DIR, 'data')
+NETBOX_DATA_DIR = _resolve_writable_data_dir()
 NETBOX_XLSX_FILE = os.path.join(NETBOX_DATA_DIR, 'data.xlsx')
 NETBOX_IMPORT_TEMPLATE_CSV = os.path.join(NETBOX_DATA_DIR, 'Netbox-import.csv')
-NETBOX_SITE_REFERENCE_CSV = os.path.join(NETBOX_DATA_DIR, 'MDT1PAPB.csv')
+NETBOX_SITE_REFERENCE_CSV = os.path.join(NETBOX_DATA_DIR, 'Reference-template.csv')
 NETBOX_UPLOAD_DIR = os.path.join(PROJECT_DIR, 'uploads')
+NETBOX_BUNDLED_TEMPLATE_CSV = os.path.join(PROJECT_DIR, 'SLA.csv')
+NETBOX_LEGACY_PROJECT_DIR = '/opt/PBI-Netbox-CSV-Import'
 NBSYNC_INTERFACE_EXAMPLES_FILE = os.path.join(
     PROJECT_DIR, 'template-sync', 'nbxsync-interface-config-context-examples.json'
 )
@@ -340,9 +380,16 @@ def _resolve_netbox_import_template_csv() -> Path:
     candidates.extend([
         NETBOX_IMPORT_TEMPLATE_CSV,
         NETBOX_SITE_REFERENCE_CSV,
+        os.path.join(NETBOX_DATA_DIR, 'SLA.csv'),
+        os.path.join(NETBOX_DATA_DIR, 'Reference-template.csv'),
         os.path.join(NETBOX_DATA_DIR, 'MDT1PAPB.csv'),
         os.path.join(NETBOX_UPLOAD_DIR, 'Netbox-import.csv'),
+        os.path.join(NETBOX_UPLOAD_DIR, 'Reference-template.csv'),
         os.path.join(NETBOX_UPLOAD_DIR, 'MDT1PAPB.csv'),
+        os.path.join(NETBOX_UPLOAD_DIR, 'data', 'Netbox-import.csv'),
+        os.path.join(NETBOX_UPLOAD_DIR, 'data', 'Reference-template.csv'),
+        os.path.join(NETBOX_UPLOAD_DIR, 'data', 'MDT1PAPB.csv'),
+        NETBOX_BUNDLED_TEMPLATE_CSV,
     ])
 
     seen = set()
@@ -363,8 +410,86 @@ def _resolve_netbox_import_template_csv() -> Path:
         "Template CSV not found. Checked:\n"
         f"{searched}\n"
         "Place a template CSV at data/Netbox-import.csv "
-        "or set NBH_NETBOX_IMPORT_TEMPLATE_CSV in the service environment."
+        "or set NBH_NETBOX_IMPORT_TEMPLATE_CSV in the service environment. "
+        f"Bundled fallback expected at {NETBOX_BUNDLED_TEMPLATE_CSV}."
     )
+
+
+def _resolve_target_facility_code(xlsx_path: Path, b2_value: str, d7_value: str) -> str:
+    reader = XlsxReader(xlsx_path)
+    try:
+        cfg_cells = reader.parse_sheet_cells("Netbox-Config")
+        match_key = get_cell(cfg_cells, "F7").strip() or "Facility-Code"
+        source_matrix = _source_sheet_matrix(reader, b2_value)
+        source_headers, site_col = _source_sheet_layout(source_matrix)
+        key_col = header_col_index(source_headers, match_key)
+        if key_col is None:
+            raise ValueError(f'Could not find header "{match_key}" in source sheet "{b2_value}".')
+        row = row_from_source_by_site(source_matrix, d7_value, site_col)
+        if row is None:
+            raise ValueError(f'Site "{d7_value}" was not found in source sheet "{b2_value}".')
+        facility = (row[key_col] if key_col < len(row) else "").strip()
+        if not facility:
+            raise ValueError(f'Could not resolve Netbox-Config!G7 value from source row for "{d7_value}".')
+        return facility
+    finally:
+        reader.close()
+
+
+def _template_csv_site_name(template_path: Path) -> str:
+    try:
+        with template_path.open(newline='', encoding='utf-8') as f:
+            rows = list(csv.reader(f))
+    except Exception:
+        return ''
+    if len(rows) < 2:
+        return ''
+    sample = rows[1]
+    return (sample[2] if len(sample) > 2 else '').strip()
+
+
+def _resolve_netbox_import_template_csv_for_target(xlsx_path: Path, b2_value: str, d7_value: str) -> Path:
+    facility = ''
+    try:
+        facility = _resolve_target_facility_code(xlsx_path, b2_value, d7_value)
+    except Exception:
+        facility = ''
+
+    candidates = []
+    if facility:
+        candidates.extend([
+            os.path.join(NETBOX_DATA_DIR, f'{facility}.csv'),
+            os.path.join(NETBOX_DATA_DIR, f'nbimp_{facility}.csv'),
+            os.path.join(NETBOX_UPLOAD_DIR, f'{facility}.csv'),
+            os.path.join(NETBOX_UPLOAD_DIR, f'nbimp_{facility}.csv'),
+            os.path.join(NETBOX_UPLOAD_DIR, 'data', f'{facility}.csv'),
+            os.path.join(NETBOX_UPLOAD_DIR, 'data', f'nbimp_{facility}.csv'),
+            os.path.join(NETBOX_LEGACY_PROJECT_DIR, 'data', f'{facility}.csv'),
+            os.path.join(NETBOX_LEGACY_PROJECT_DIR, 'uploads', f'{facility}.csv'),
+            os.path.join(NETBOX_LEGACY_PROJECT_DIR, 'uploads', f'nbimp_{facility}.csv'),
+        ])
+
+    for raw in candidates:
+        p = Path(os.path.abspath(raw))
+        if p.exists() and p.is_file():
+            return p
+
+    site_target = str(d7_value or '').strip()
+    search_roots = [
+        NETBOX_DATA_DIR,
+        NETBOX_UPLOAD_DIR,
+        os.path.join(NETBOX_UPLOAD_DIR, 'data'),
+        os.path.join(NETBOX_LEGACY_PROJECT_DIR, 'data'),
+        os.path.join(NETBOX_LEGACY_PROJECT_DIR, 'uploads'),
+    ]
+    for root in search_roots:
+        root_path = Path(root)
+        if not root_path.exists() or not root_path.is_dir():
+            continue
+        for p in sorted(root_path.glob('*.csv')):
+            if _template_csv_site_name(p) == site_target:
+                return p
+    return _resolve_netbox_import_template_csv()
 
 
 def _nbsync_pull_progress_cleanup_locked(now_ts=None):
@@ -5428,9 +5553,10 @@ def netbox_import_preview():
     limit = max(1, min(200, limit))
 
     try:
-        template_csv = _resolve_netbox_import_template_csv()
+        xlsx_path = Path(NETBOX_XLSX_FILE)
+        template_csv = _resolve_netbox_import_template_csv_for_target(xlsx_path, b2_value, d7_value)
         g7_value, rows = build_netbox_import_export(
-            xlsx_path=Path(NETBOX_XLSX_FILE),
+            xlsx_path=xlsx_path,
             template_csv_path=template_csv,
             b2_value=b2_value,
             d7_value=d7_value,
@@ -5461,9 +5587,10 @@ def netbox_import_export():
     if not b2_value or not d7_value:
         return jsonify({'error': 'Both b2 and d7 are required'}), 400
     try:
-        template_csv = _resolve_netbox_import_template_csv()
+        xlsx_path = Path(NETBOX_XLSX_FILE)
+        template_csv = _resolve_netbox_import_template_csv_for_target(xlsx_path, b2_value, d7_value)
         g7_value, output_path = write_export_csv(
-            xlsx_path=Path(NETBOX_XLSX_FILE),
+            xlsx_path=xlsx_path,
             template_csv_path=template_csv,
             output_dir=Path(NETBOX_DATA_DIR),
             b2_value=b2_value,
@@ -5503,9 +5630,10 @@ def netbox_import_export_queue():
     workers = int(data.get('workers', DEFAULT_IMPORT_WORKERS))
 
     try:
-        template_csv = _resolve_netbox_import_template_csv()
+        xlsx_path = Path(NETBOX_XLSX_FILE)
+        template_csv = _resolve_netbox_import_template_csv_for_target(xlsx_path, b2_value, d7_value)
         _g7_value, output_path = write_export_csv(
-            xlsx_path=Path(NETBOX_XLSX_FILE),
+            xlsx_path=xlsx_path,
             template_csv_path=template_csv,
             output_dir=Path(NETBOX_DATA_DIR),
             b2_value=b2_value,

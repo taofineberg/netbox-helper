@@ -82,7 +82,7 @@ else
 fi
 
 echo "Preparing runtime files and permissions..."
-mkdir -p "$APP_DIR/uploads" "$APP_DIR/logs" "$APP_DIR/template-sync"
+mkdir -p "$APP_DIR/data" "$APP_DIR/uploads" "$APP_DIR/logs" "$APP_DIR/template-sync"
 touch "$APP_DIR/app.log" "$APP_DIR/netbox_import.log"
 if [ ! -f "$APP_DIR/settings.json" ]; then
     if [ -f "$APP_DIR/settings.example.json" ]; then
@@ -147,6 +147,11 @@ echo "  1) users:   <OLD_SETUP_PATH>/settings.json"
 echo "     -> ${APP_DIR}/settings.json"
 echo "  2) servers: <OLD_SETUP_PATH>/template-sync/instances.json"
 echo "     -> ${APP_DIR}/template-sync/instances.json"
+echo ""
+echo "Bundled sanitized CSV templates are included for clean installs:"
+echo "  - ${APP_DIR}/data/Netbox-import.csv"
+echo "  - ${APP_DIR}/data/Reference-template.csv"
+echo "These are safe starter/reference files and can be replaced later if needed."
 echo ""
 
 sleep 2

@@ -358,6 +358,13 @@ What setup does now:
 4. Installs `netbox-importer.service` pointing to `netbox_helper.py`.
 5. Enables and restarts the service.
 
+Bundled starter data for a clean install:
+
+- `data/Netbox-import.csv`
+- `data/Reference-template.csv`
+
+These are sanitized reference CSVs shipped with the repo so the NetBox import/export workflow has a safe baseline on first install. They are intended as starter templates and can be replaced later with customer-specific baselines if desired.
+
 Service URL default:
 
 - `http://<server-ip>:81`
@@ -543,7 +550,7 @@ The application supports **SSL/TLS via settings.json**, but SSL certificates are
 
 2. **Run automated setup** (recommended):
    ```bash
-   sudo bash deploy.sh
+   sudo bash setup.sh
    ```
    This script handles:
    - System package installation
@@ -563,7 +570,7 @@ The application supports **SSL/TLS via settings.json**, but SSL certificates are
 
 - `PRODUCTION.md` - Complete production deployment guide
 - `HTTPS_SETUP.md` - SSL/HTTPS configuration
-- `deploy.sh` - Automated deployment script
+- `setup.sh` - Automated clean-install script
 - `netbox-helper.service` - Systemd service file template
 - `nginx-netbox-helper.conf` - Nginx configuration template
 - `gunicorn_config.py` - Gunicorn WSGI server configuration

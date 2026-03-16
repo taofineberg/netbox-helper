@@ -3,7 +3,7 @@
 Export one NetBox site to Netbox-import CSV format.
 
 The output layout (section order, identifiers, header columns, column count)
-is copied from a reference CSV (default: data/MDT1PAPB.csv).
+is copied from a reference CSV (default: data/Reference-template.csv).
 """
 
 from __future__ import annotations
@@ -507,7 +507,7 @@ def main() -> int:
     parser.add_argument("site_name", help="NetBox site name (exact match).")
     parser.add_argument("--instance-id", default=None, help="Instance id from template-sync/instances.json")
     parser.add_argument("--instance-name", default=None, help="Instance name from template-sync/instances.json")
-    parser.add_argument("--reference", default="data/MDT1PAPB.csv", help="Reference CSV for output layout.")
+    parser.add_argument("--reference", default="data/Reference-template.csv", help="Reference CSV for output layout.")
     parser.add_argument("--output-dir", default="data", help="Output directory.")
     args = parser.parse_args()
 

@@ -383,6 +383,18 @@ def build_netbox_import_export(
         template_slug = template_sample[3].strip() if len(template_sample) > 3 else ""
         template_facility = template_sample[8].strip() if len(template_sample) > 8 else ""
 
+        new_row = row_from_source_by_site(source_matrix, d7_value, site_col)
+        if new_row is None:
+            raise ValueError(
+                f'Site "{d7_value}" was not found in source sheet "{b2_value}".'
+            )
+
+        g7_value = new_row[key_col].strip()
+        if not g7_value:
+            raise ValueError(
+                f'Could not resolve Netbox-Config!G7 value from source row for "{d7_value}".'
+            )
+
         found_old = _find_row_in_sheet(
             source_matrix=source_matrix,
             match_key=match_key,
@@ -414,18 +426,6 @@ def build_netbox_import_export(
                 raise ValueError(
                     "Could not resolve template baseline row from Netbox-import template values."
                 )
-
-        new_row = row_from_source_by_site(source_matrix, d7_value, site_col)
-        if new_row is None:
-            raise ValueError(
-                f'Site "{d7_value}" was not found in source sheet "{b2_value}".'
-            )
-
-        g7_value = new_row[key_col].strip()
-        if not g7_value:
-            raise ValueError(
-                f'Could not resolve Netbox-Config!G7 value from source row for "{d7_value}".'
-            )
 
         replacements_map: dict[str, str] = {}
         new_header_index: dict[str, int] = {}
