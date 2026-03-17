@@ -1,3 +1,13 @@
 logs/
 .env
 settings.json
+uploads/
+__pycache__/
+*.py[cod]
+data/*.xlsx
+data/*.xlsm
+data/nbimp_*.csv
+data/nbsrc_*.csv
+template-sync/instances.json
+template-sync/nbsync_options.json
+uploads/data/data.xlsx

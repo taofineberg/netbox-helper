@@ -313,6 +313,17 @@ def _find_row_in_sheet(
     return source_headers, old_row
 
 
+def _template_rows_from_workbook(reader: XlsxReader) -> list[list[str]]:
+    if "Netbox-import" not in reader.sheet_paths:
+        raise ValueError('Workbook is missing required sheet "Netbox-import".')
+    cells = reader.parse_sheet_cells("Netbox-import")
+    matrix = build_sheet_matrix(cells)
+    rows = [list(row) for row in matrix if any(str(cell or "").strip() for cell in row)]
+    if len(rows) < 2:
+        raise ValueError('Workbook sheet "Netbox-import" has no usable data rows.')
+    return rows
+
+
 def list_d7_options(xlsx_path: Path, b2_value: str) -> list[str]:
     b2_value = str(b2_value or "").strip()
     if not b2_value:
@@ -343,7 +354,7 @@ def list_d7_options(xlsx_path: Path, b2_value: str) -> list[str]:
 
 def build_netbox_import_export(
     xlsx_path: Path,
-    template_csv_path: Path,
+    template_csv_path: Path | None,
     b2_value: str,
     d7_value: str,
 ) -> tuple[str, list[list[str]]]:
@@ -355,9 +366,6 @@ def build_netbox_import_export(
         raise ValueError("D7 value is required.")
     if not xlsx_path.exists():
         raise ValueError(f"Input file not found: {xlsx_path}")
-    if not template_csv_path.exists():
-        raise ValueError(f"Template CSV not found: {template_csv_path}")
-
     reader = XlsxReader(xlsx_path)
     try:
         config_cells = reader.parse_sheet_cells("Netbox-Config")
@@ -373,10 +381,7 @@ def build_netbox_import_export(
                 f'Could not find header "{match_key}" in source sheet "{b2_value}".'
             )
 
-        with template_csv_path.open(newline="", encoding="utf-8") as f:
-            template_rows = list(csv.reader(f))
-        if len(template_rows) < 2:
-            raise ValueError(f"Template CSV has no data rows: {template_csv_path}")
+        template_rows = _template_rows_from_workbook(reader)
 
         template_sample = template_rows[1]
         template_site = template_sample[2].strip() if len(template_sample) > 2 else ""
@@ -474,7 +479,7 @@ def build_netbox_import_export(
 
 def write_export_csv(
     xlsx_path: Path,
-    template_csv_path: Path,
+    template_csv_path: Path | None,
     output_dir: Path,
     b2_value: str,
     d7_value: str,

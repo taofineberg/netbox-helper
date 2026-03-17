@@ -5347,13 +5347,17 @@ def index():
 @login_required
 def netbox_import_options():
     try:
+        reader = XlsxReader(Path(NETBOX_XLSX_FILE))
+        try:
+            if 'Netbox-import' not in reader.sheet_paths:
+                raise ValueError('Workbook is missing required sheet "Netbox-import".')
+        finally:
+            reader.close()
         b2_options = list_b2_options(Path(NETBOX_XLSX_FILE))
-        template_csv = _resolve_netbox_import_template_csv()
         return jsonify({
             'b2_options': b2_options,
             'default_b2': b2_options[0] if b2_options else '',
-            'template_csv': str(template_csv),
-            'template_name': os.path.basename(str(template_csv)),
+            'template_name': 'Netbox-import (workbook sheet)',
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -5384,34 +5388,6 @@ def netbox_import_upload_xlsx():
             'workbook': os.path.basename(NETBOX_XLSX_FILE),
             'b2_options': b2_options,
             'default_b2': b2_options[0] if b2_options else '',
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/netbox-import/api/upload-template-csv', methods=['POST'])
-@login_required
-def netbox_import_upload_template_csv():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
-
-    file = request.files['file']
-    filename = secure_filename(str(file.filename or ''))
-    if not filename:
-        return jsonify({'error': 'No selected file'}), 400
-
-    ext = os.path.splitext(filename)[1].lower()
-    if ext != '.csv':
-        return jsonify({'error': 'Invalid file type. Please upload a CSV file.'}), 400
-
-    try:
-        os.makedirs(NETBOX_DATA_DIR, exist_ok=True)
-        file.save(NETBOX_IMPORT_TEMPLATE_CSV)
-        return jsonify({
-            'message': f'Baseline CSV {filename} uploaded successfully',
-            'filename': filename,
-            'template_csv': NETBOX_IMPORT_TEMPLATE_CSV,
-            'template_name': os.path.basename(NETBOX_IMPORT_TEMPLATE_CSV),
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
