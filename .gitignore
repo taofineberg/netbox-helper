@@ -12,3 +12,4 @@ template-sync/instances.json
 template-sync/nbsync_options.json
 uploads/data/data.xlsx
 *.log
+.venv/
