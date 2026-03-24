@@ -51,6 +51,7 @@ from export_netbox_config import (
     row_from_source_by_site,
     header_col_index,
     list_b2_options,
+    list_d4_options,
     list_d7_options,
     build_netbox_import_export,
     write_export_csv,
@@ -5354,9 +5355,21 @@ def netbox_import_options():
         finally:
             reader.close()
         b2_options = list_b2_options(Path(NETBOX_XLSX_FILE))
+        d4_options = list_d4_options(Path(NETBOX_XLSX_FILE))
+        default_d4 = '3' if '3' in d4_options else ''
+        reader = XlsxReader(Path(NETBOX_XLSX_FILE))
+        try:
+            cfg_cells = reader.parse_sheet_cells("Netbox-Config")
+            workbook_d4 = get_cell(cfg_cells, "D4").strip()
+            if not default_d4:
+                default_d4 = workbook_d4
+        finally:
+            reader.close()
         return jsonify({
             'b2_options': b2_options,
             'default_b2': b2_options[0] if b2_options else '',
+            'd4_options': d4_options,
+            'default_d4': default_d4 or (d4_options[0] if d4_options else ''),
             'template_name': 'Netbox-import (workbook sheet)',
         })
     except Exception as e:
@@ -5382,12 +5395,24 @@ def netbox_import_upload_xlsx():
         os.makedirs(NETBOX_DATA_DIR, exist_ok=True)
         file.save(NETBOX_XLSX_FILE)
         b2_options = list_b2_options(Path(NETBOX_XLSX_FILE))
+        d4_options = list_d4_options(Path(NETBOX_XLSX_FILE))
+        default_d4 = '3' if '3' in d4_options else ''
+        reader = XlsxReader(Path(NETBOX_XLSX_FILE))
+        try:
+            cfg_cells = reader.parse_sheet_cells("Netbox-Config")
+            workbook_d4 = get_cell(cfg_cells, "D4").strip()
+            if not default_d4:
+                default_d4 = workbook_d4
+        finally:
+            reader.close()
         return jsonify({
             'message': f'Workbook {filename} uploaded successfully',
             'filename': filename,
             'workbook': os.path.basename(NETBOX_XLSX_FILE),
             'b2_options': b2_options,
             'default_b2': b2_options[0] if b2_options else '',
+            'd4_options': d4_options,
+            'default_d4': default_d4 or (d4_options[0] if d4_options else ''),
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -5562,9 +5587,10 @@ def netbox_import_d7_options():
 def netbox_import_preview():
     data = request.json or {}
     b2_value = str(data.get('b2', '') or '').strip()
+    d4_value = str(data.get('d4', '') or '').strip()
     d7_value = str(data.get('d7', '') or '').strip()
-    if not b2_value or not d7_value:
-        return jsonify({'error': 'Both b2 and d7 are required'}), 400
+    if not b2_value or not d4_value or not d7_value:
+        return jsonify({'error': 'b2, d4, and d7 are required'}), 400
     try:
         limit = int(data.get('limit', 25))
     except Exception:
@@ -5578,12 +5604,14 @@ def netbox_import_preview():
             xlsx_path=xlsx_path,
             template_csv_path=template_csv,
             b2_value=b2_value,
+            d4_value=d4_value,
             d7_value=d7_value,
         )
         header = rows[0] if rows else []
         data_rows = rows[1:] if len(rows) > 1 else []
         return jsonify({
             'b2': b2_value,
+            'd4': d4_value,
             'd7': d7_value,
             'g7': g7_value,
             'filename': f'{safe_filename(g7_value)}.csv',
@@ -5602,9 +5630,10 @@ def netbox_import_preview():
 def netbox_import_export():
     data = request.json or {}
     b2_value = str(data.get('b2', '') or '').strip()
+    d4_value = str(data.get('d4', '') or '').strip()
     d7_value = str(data.get('d7', '') or '').strip()
-    if not b2_value or not d7_value:
-        return jsonify({'error': 'Both b2 and d7 are required'}), 400
+    if not b2_value or not d4_value or not d7_value:
+        return jsonify({'error': 'b2, d4, and d7 are required'}), 400
     try:
         xlsx_path = Path(NETBOX_XLSX_FILE)
         template_csv = _resolve_netbox_import_template_csv_for_target(xlsx_path, b2_value, d7_value)
@@ -5613,11 +5642,13 @@ def netbox_import_export():
             template_csv_path=template_csv,
             output_dir=Path(NETBOX_DATA_DIR),
             b2_value=b2_value,
+            d4_value=d4_value,
             d7_value=d7_value,
         )
         return jsonify({
             'message': 'Export complete',
             'b2': b2_value,
+            'd4': d4_value,
             'd7': d7_value,
             'g7': g7_value,
             'filename': output_path.name,
@@ -5632,9 +5663,10 @@ def netbox_import_export():
 def netbox_import_export_queue():
     data = request.json or {}
     b2_value = str(data.get('b2', '') or '').strip()
+    d4_value = str(data.get('d4', '') or '').strip()
     d7_value = str(data.get('d7', '') or '').strip()
-    if not b2_value or not d7_value:
-        return jsonify({'error': 'Both b2 and d7 are required'}), 400
+    if not b2_value or not d4_value or not d7_value:
+        return jsonify({'error': 'b2, d4, and d7 are required'}), 400
 
     server_id = data.get('server_id')
     branch = _extract_requested_branch(data, key='branch')
@@ -5656,6 +5688,7 @@ def netbox_import_export_queue():
             template_csv_path=template_csv,
             output_dir=Path(NETBOX_DATA_DIR),
             b2_value=b2_value,
+            d4_value=d4_value,
             d7_value=d7_value,
         )
 

@@ -952,7 +952,7 @@
     <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
             <h3 style="margin:0; color:#fff;">Netbox-import Template Export</h3>
-            <span id="nbimpSummary" style="font-size:0.78rem; color:var(--muted);">Select B2 and D7 to preview export.</span>
+            <span id="nbimpSummary" style="font-size:0.78rem; color:var(--muted);">Select B2, Ciena Nodes, and D7 to preview export.</span>
         </div>
         <div style="display:flex; align-items:center; gap:10px; margin-top:10px; flex-wrap:wrap;">
             <button id="nbimpUploadBtn" class="btn-muted">Upload data.xlsx</button>
@@ -967,6 +967,10 @@
             <div style="min-width:260px; flex:1;">
                 <label style="display:block; font-size:0.78rem; color:var(--muted); margin-bottom:6px;">D7 (Site)</label>
                 <select id="nbimpD7Select" style="width:100%;"></select>
+            </div>
+            <div style="min-width:260px; flex:1;">
+                <label style="display:block; font-size:0.78rem; color:var(--muted); margin-bottom:6px;">Ciena Nodes</label>
+                <select id="nbimpD4Select" style="width:100%;"></select>
             </div>
             <div style="display:flex; gap:8px;">
                 <button id="nbimpPreviewBtn" class="btn-accent">Preview Netbox-import</button>
@@ -2309,6 +2313,7 @@ const queueTable       = document.getElementById('queueTable');
 const queueBody        = document.getElementById('queueBody');
 const logTitle         = document.getElementById('logTitle');
 const nbimpB2Select    = document.getElementById('nbimpB2Select');
+const nbimpD4Select    = document.getElementById('nbimpD4Select');
 const nbimpD7Select    = document.getElementById('nbimpD7Select');
 const nbimpPreviewBtn  = document.getElementById('nbimpPreviewBtn');
 const nbimpExportBtn   = document.getElementById('nbimpExportBtn');
@@ -2761,6 +2766,12 @@ async function nbimpLoadB2Options() {
         nbimpB2Select.innerHTML = opts.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
         if (d.default_b2) nbimpB2Select.value = d.default_b2;
         if (!nbimpB2Select.value && opts.length) nbimpB2Select.value = opts[0];
+        const d4Opts = Array.isArray(d.d4_options) ? d.d4_options : [];
+        if (nbimpD4Select) {
+            nbimpD4Select.innerHTML = d4Opts.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+            if (d.default_d4) nbimpD4Select.value = d.default_d4;
+            if (!nbimpD4Select.value && d4Opts.length) nbimpD4Select.value = d4Opts[0];
+        }
         await nbimpLoadD7Options();
     } catch (err) {
         nbimpInfoLine.textContent = `Failed to load B2 options: ${err.message}`;
@@ -2783,7 +2794,7 @@ async function nbimpUploadWorkbook(file) {
         if (nbimpWorkbookLine) {
             nbimpWorkbookLine.textContent = `Using workbook: ${d.workbook} (uploaded: ${d.filename})`;
         }
-        nbimpInfoLine.textContent = 'Workbook uploaded. Select B2 and D7 to continue.';
+        nbimpInfoLine.textContent = 'Workbook uploaded. Select B2, Ciena Nodes, and D7 to continue.';
         toast(`Workbook uploaded: ${d.filename}`, 'ok');
         await nbimpLoadB2Options();
     } catch (err) {
@@ -2820,9 +2831,10 @@ async function nbimpLoadD7Options() {
 
 async function nbimpPreview() {
     const b2 = (nbimpB2Select?.value || '').trim();
+    const d4 = (nbimpD4Select?.value || '').trim();
     const d7 = (nbimpD7Select?.value || '').trim();
-    if (!b2 || !d7) {
-        toast('Select both B2 and D7 first.', 'err');
+    if (!b2 || !d4 || !d7) {
+        toast('Select B2, Ciena Nodes, and D7 first.', 'err');
         return;
     }
     nbimpSetLoading(true);
@@ -2831,12 +2843,12 @@ async function nbimpPreview() {
         const r = await fetch('/netbox-import/api/preview', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ b2, d7, limit: 25 }),
+            body: JSON.stringify({ b2, d4, d7, limit: 25 }),
         });
         const d = await r.json();
         if (d.error) throw new Error(d.error);
         nbimpRenderPreview(d.header || [], d.rows || []);
-        nbimpSummary.textContent = `B2: ${d.b2} | D7: ${d.d7} | G7: ${d.g7}`;
+        nbimpSummary.textContent = `B2: ${d.b2} | Ciena Nodes: ${d.d4} | D7: ${d.d7} | G7: ${d.g7}`;
         nbimpInfoLine.textContent = `Previewing ${d.rows.length}/${d.total_rows} rows, ${d.columns} columns. Export file: ${d.filename}`;
     } catch (err) {
         nbimpInfoLine.textContent = `Preview failed: ${err.message}`;
@@ -2848,9 +2860,10 @@ async function nbimpPreview() {
 
 async function nbimpExport() {
     const b2 = (nbimpB2Select?.value || '').trim();
+    const d4 = (nbimpD4Select?.value || '').trim();
     const d7 = (nbimpD7Select?.value || '').trim();
-    if (!b2 || !d7) {
-        toast('Select both B2 and D7 first.', 'err');
+    if (!b2 || !d4 || !d7) {
+        toast('Select B2, Ciena Nodes, and D7 first.', 'err');
         return;
     }
     nbimpSetLoading(true);
@@ -2858,7 +2871,7 @@ async function nbimpExport() {
         const r = await fetch('/netbox-import/api/export', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ b2, d7 }),
+            body: JSON.stringify({ b2, d4, d7 }),
         });
         const d = await r.json();
         if (d.error) throw new Error(d.error);
@@ -2875,11 +2888,12 @@ async function nbimpExport() {
 
 async function nbimpAddToQueue() {
     const b2 = (nbimpB2Select?.value || '').trim();
+    const d4 = (nbimpD4Select?.value || '').trim();
     const d7 = (nbimpD7Select?.value || '').trim();
     const server_id = document.getElementById('importServerSelect')?.value || null;
     const branch = getImportBranchValue();
-    if (!b2 || !d7) {
-        toast('Select both B2 and D7 first.', 'err');
+    if (!b2 || !d4 || !d7) {
+        toast('Select B2, Ciena Nodes, and D7 first.', 'err');
         return;
     }
     if (!server_id) {
@@ -2891,7 +2905,7 @@ async function nbimpAddToQueue() {
         const r = await fetch('/netbox-import/api/export-queue', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ b2, d7, server_id, branch, dry_run: false, replace: false, delay: 0.0, workers: 6 }),
+            body: JSON.stringify({ b2, d4, d7, server_id, branch, dry_run: false, replace: false, delay: 0.0, workers: 6 }),
         });
         const d = await r.json();
         if (d.error) throw new Error(d.error);

@@ -22,6 +22,7 @@ from zipfile import ZipFile
 
 NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 NS_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+D4_ALLOWED_VALUES = ("1", "2", "3", "4")
 
 
 @dataclass
@@ -257,6 +258,15 @@ def _unique_nonempty(values: list[str]) -> list[str]:
     return out
 
 
+def _normalize_d4_value(d4_value: str) -> str:
+    raw = str(d4_value or "").strip()
+    if not raw:
+        return ""
+    if raw not in D4_ALLOWED_VALUES:
+        raise ValueError("D4 value must be one of 1, 2, 3, or 4.")
+    return raw
+
+
 def list_b2_options(xlsx_path: Path) -> list[str]:
     reader = XlsxReader(xlsx_path)
     try:
@@ -274,6 +284,19 @@ def list_b2_options(xlsx_path: Path) -> list[str]:
         cfg_cells = reader.parse_sheet_cells("Netbox-Config")
         cur = get_cell(cfg_cells, "B2").strip()
         return [cur] if cur else []
+    finally:
+        reader.close()
+
+
+def list_d4_options(xlsx_path: Path) -> list[str]:
+    reader = XlsxReader(xlsx_path)
+    try:
+        cfg_cells = reader.parse_sheet_cells("Netbox-Config")
+        current = get_cell(cfg_cells, "D4").strip()
+        options = list(D4_ALLOWED_VALUES)
+        if current and current not in options:
+            options.append(current)
+        return options
     finally:
         reader.close()
 
@@ -324,6 +347,30 @@ def _template_rows_from_workbook(reader: XlsxReader) -> list[list[str]]:
     return rows
 
 
+def _template_rows_from_config_filter(reader: XlsxReader, d4_value: str) -> list[list[str]]:
+    config_cells = reader.parse_sheet_cells("Netbox-Config")
+    config_matrix = build_sheet_matrix(config_cells)
+    threshold = int(_normalize_d4_value(d4_value))
+    rows: list[list[str]] = []
+    for row in config_matrix[1:]:
+        level = row[7] if len(row) > 7 else ""
+        export_row = list(row[8:27])
+        first_cell = export_row[0] if export_row else ""
+        if not str(first_cell or "").strip():
+            continue
+        level_raw = str(level or "").strip()
+        if level_raw:
+            try:
+                if int(level_raw) > threshold:
+                    continue
+            except Exception:
+                continue
+        rows.append(export_row)
+    if len(rows) < 2:
+        raise ValueError('Workbook-filtered Netbox-import data has no usable rows.')
+    return rows
+
+
 def list_d7_options(xlsx_path: Path, b2_value: str) -> list[str]:
     b2_value = str(b2_value or "").strip()
     if not b2_value:
@@ -357,9 +404,11 @@ def build_netbox_import_export(
     template_csv_path: Path | None,
     b2_value: str,
     d7_value: str,
+    d4_value: str = "",
 ) -> tuple[str, list[list[str]]]:
     b2_value = str(b2_value or "").strip()
     d7_value = str(d7_value or "").strip()
+    d4_value = _normalize_d4_value(d4_value)
     if not b2_value:
         raise ValueError("B2 value is required.")
     if not d7_value:
@@ -381,7 +430,11 @@ def build_netbox_import_export(
                 f'Could not find header "{match_key}" in source sheet "{b2_value}".'
             )
 
-        template_rows = _template_rows_from_workbook(reader)
+        workbook_d4 = get_cell(config_cells, "D4").strip()
+        if d4_value and d4_value != workbook_d4:
+            template_rows = _template_rows_from_config_filter(reader, d4_value)
+        else:
+            template_rows = _template_rows_from_workbook(reader)
 
         template_sample = template_rows[1]
         template_site = template_sample[2].strip() if len(template_sample) > 2 else ""
@@ -483,12 +536,14 @@ def write_export_csv(
     output_dir: Path,
     b2_value: str,
     d7_value: str,
+    d4_value: str = "",
 ) -> tuple[str, Path]:
     g7_value, output_matrix = build_netbox_import_export(
         xlsx_path=xlsx_path,
         template_csv_path=template_csv_path,
         b2_value=b2_value,
         d7_value=d7_value,
+        d4_value=d4_value,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     output_name = f"{safe_filename(g7_value)}.csv"
