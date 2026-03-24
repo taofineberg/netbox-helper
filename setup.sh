@@ -9,6 +9,7 @@ LEGACY_SERVICES=("netbox-importer" "netbox-helper")
 SYSTEMD_DIR="/etc/systemd/system"
 APP_USER="root"
 APP_GROUP="root"
+DEFAULT_PORT=81
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "This setup script must run as root (or via sudo)."
@@ -33,6 +34,26 @@ remove_existing_service() {
         systemctl disable "$svc" 2>/dev/null || true
         rm -f "$unit_path"
     fi
+}
+
+port_in_use() {
+    local port="$1"
+    ss -tln 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$"
+}
+
+find_available_port() {
+    local start_port="${1:-$DEFAULT_PORT}"
+    local end_port="${2:-65535}"
+    local port
+
+    for ((port=start_port; port<=end_port; port++)); do
+        if ! port_in_use "$port"; then
+            echo "$port"
+            return 0
+        fi
+    done
+
+    return 1
 }
 
 echo "Starting clean setup for Netbox Helper..."
@@ -63,15 +84,24 @@ if [ ! -f "$APP_DIR/.env" ]; then
 
     SECRET_KEY=$("$APP_DIR/.venv/bin/python3" -c "import secrets; print(secrets.token_hex(32))")
 
+    APP_PORT="$(find_available_port "$DEFAULT_PORT")"
+    if [ -z "$APP_PORT" ]; then
+        echo "ERROR: Unable to find an available TCP port for the app."
+        exit 1
+    fi
+
     cat > "$APP_DIR/.env" <<EOF
 LOG_LEVEL=INFO
 LOG_FILE=netbox_import.log
 SECRET_KEY=${SECRET_KEY}
 APP_USERNAME=${APP_USERNAME}
 APP_PASSWORD=${APP_PASSWORD}
-PORT=81
+PORT=${APP_PORT}
 EOF
     echo ".env created."
+    if [ "$APP_PORT" != "$DEFAULT_PORT" ]; then
+        echo "Default port ${DEFAULT_PORT} is busy; using ${APP_PORT} instead."
+    fi
 else
     echo ".env already exists, keeping current values."
 fi
@@ -123,13 +153,27 @@ WantedBy=multi-user.target
 EOF
 
 APP_PORT=$(grep -E '^PORT=' "$APP_DIR/.env" 2>/dev/null | tail -n1 | cut -d= -f2 || true)
-APP_PORT="${APP_PORT:-81}"
-if ss -tln 2>/dev/null | grep -q ":${APP_PORT} "; then
+APP_PORT="${APP_PORT:-$DEFAULT_PORT}"
+if port_in_use "$APP_PORT"; then
+    if [ "$APP_PORT" = "$DEFAULT_PORT" ]; then
+        FALLBACK_PORT="$(find_available_port "$((DEFAULT_PORT + 1))")"
+        if [ -n "$FALLBACK_PORT" ]; then
+            sed -i "s/^PORT=.*/PORT=${FALLBACK_PORT}/" "$APP_DIR/.env"
+            APP_PORT="$FALLBACK_PORT"
+            echo ""
+            echo "Port ${DEFAULT_PORT} is already in use; switching to ${APP_PORT}."
+        else
+            echo ""
+            echo "ERROR: Port ${APP_PORT} is already in use, and no fallback port was found."
+            exit 1
+        fi
+    else
     echo ""
     echo "ERROR: Port ${APP_PORT} is already in use."
     echo "Update PORT in $APP_DIR/.env, then run:"
     echo "  systemctl restart ${SERVICE_NAME}"
     exit 1
+    fi
 fi
 
 systemctl daemon-reload
