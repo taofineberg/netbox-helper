@@ -13,3 +13,4 @@ template-sync/nbsync_options.json
 uploads/data/data.xlsx
 *.log
 .venv/
+data/*.csv
