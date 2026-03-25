@@ -6,6 +6,7 @@ Handles all API interactions with Netbox for different resource types
 import json
 import logging
 import os
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -90,6 +91,11 @@ class NetboxAPIHandler:
             return result
         except pynetbox.RequestError:
             return None
+        except ValueError:
+            # pynetbox raises ValueError when .get() returns more than one result.
+            # Fall back to filter() and return the first match.
+            results = list(endpoint.filter(**kwargs))
+            return results[0] if results else None
 
     def _get_or_create_safe(self, endpoint, create_data: dict, dry_run: bool = False, **lookup_kwargs):
         """Get or create an object, safe for concurrent use.
@@ -1197,25 +1203,61 @@ class NetboxAPIHandler:
                 result['message'] = f'Device "{device_name}" not found'
                 return result
             
-            # Get or create module bay
-            module_bay = self._get_or_create_safe(
-                self.api.dcim.module_bays,
-                {'device': device.id, 'name': module_bay_name},
-                dry_run=dry_run,
-                device_id=device.id,
-                name=module_bay_name,
-            )
-            
+            # Resolve module bay — supports "ParentModule/ChildBay" slash notation for
+            # nested module bays. Split on the LAST slash so module type names containing
+            # slashes (e.g. "Slot15: OME 6500 SPAP-2 w/2xOSC 2xSFP/osc1") are handled correctly.
+            if '/' in module_bay_name:
+                parent_display, child_bay_name = module_bay_name.rsplit('/', 1)
+
+                # Find the parent module on the device by matching its display name.
+                # NetBox module display format is "{bay}: {module_type} (ID)" — strip the trailing ID.
+                parent_modules = list(self.api.dcim.modules.filter(device_id=device.id))
+                matched = [
+                    m for m in parent_modules
+                    if re.sub(r'\s*\(\d+\)\s*$', '', str(m)).strip() == parent_display.strip()
+                ]
+                if not matched:
+                    result['message'] = (
+                        f'Parent module "{parent_display}" not found on device "{device_name}". '
+                        f'Available: {[str(m) for m in parent_modules]}'
+                    )
+                    return result
+                parent_module = matched[0]
+
+                # Find the child bay inside that parent module.
+                # Filter by device + name, then match the parent module in Python
+                # since module_id may not be a supported API filter.
+                candidate_bays = list(self.api.dcim.module_bays.filter(device_id=device.id, name=child_bay_name))
+                child_bays = [
+                    b for b in candidate_bays
+                    if getattr(b, 'module', None) and b.module.id == parent_module.id
+                ]
+                if not child_bays:
+                    result['message'] = f'Child module bay "{child_bay_name}" not found in module "{parent_display}" on device "{device_name}"'
+                    return result
+                module_bay = child_bays[0]
+                display_bay_name = module_bay_name
+            else:
+                module_bay = self._get_or_create_safe(
+                    self.api.dcim.module_bays,
+                    {'device': device.id, 'name': module_bay_name},
+                    dry_run=dry_run,
+                    device_id=device.id,
+                    name=module_bay_name,
+                )
+                display_bay_name = module_bay_name
+
             # Check if module exists
             if module_bay:
-                existing = self.get_or_none(self.api.dcim.modules, module_bay_id=module_bay.id)
+                existing_modules = list(self.api.dcim.modules.filter(module_bay_id=module_bay.id))
+                existing = existing_modules[0] if existing_modules else None
             else:
                 existing = None
             
             if existing:
                 if not replace:
                     result['action'] = 'skipped'
-                    result['message'] = f'Module in bay "{module_bay_name}" already exists (skipped)'
+                    result['message'] = f'Module in bay "{display_bay_name}" already exists (skipped)'
                     result['success'] = True
                     return result
                 else:
@@ -1266,7 +1308,7 @@ class NetboxAPIHandler:
 
             if dry_run:
                 result['success'] = True
-                result['message'] = f'[DRY RUN] Would {result["action"]} module in bay "{module_bay_name}"'
+                result['message'] = f'[DRY RUN] Would {result["action"]} module in bay "{display_bay_name}"'
                 logger.info(result['message'])
                 return result
 
@@ -1278,7 +1320,7 @@ class NetboxAPIHandler:
                     if '500' in str(e) or 'RetryError' in type(e).__name__:
                         logger.warning(
                             f'Module create with replicate_components failed ({e}), '
-                            f'retrying without it for bay "{module_bay_name}"'
+                            f'retrying without it for bay "{display_bay_name}"'
                         )
                         return self.api.dcim.modules.create(payload)
                     raise
@@ -1288,11 +1330,11 @@ class NetboxAPIHandler:
                 existing.delete()
                 _create_module(data)
                 result['success'] = True
-                result['message'] = f'Recreated module in bay "{module_bay_name}"'
+                result['message'] = f'Recreated module in bay "{display_bay_name}"'
             else:
                 _create_module(data)
                 result['success'] = True
-                result['message'] = f'Created module in bay "{module_bay_name}"'
+                result['message'] = f'Created module in bay "{display_bay_name}"'
                 
             logger.info(result['message'])
             
