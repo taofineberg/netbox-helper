@@ -473,8 +473,9 @@ def _resolve_netbox_import_template_csv_for_target(xlsx_path: Path, b2_value: st
     candidates = []
     if facility:
         candidates.extend([
-            os.path.join(NETBOX_DATA_DIR, f'{facility}.csv'),
-            os.path.join(NETBOX_DATA_DIR, f'nbimp_{facility}.csv'),
+            # Do not source templates from NETBOX_DATA_DIR facility exports.
+            # Those files are generated outputs and can feed stale values back
+            # into preview/export transformations.
             os.path.join(NETBOX_UPLOAD_DIR, f'{facility}.csv'),
             os.path.join(NETBOX_UPLOAD_DIR, f'nbimp_{facility}.csv'),
             os.path.join(NETBOX_UPLOAD_DIR, 'data', f'{facility}.csv'),
@@ -491,7 +492,6 @@ def _resolve_netbox_import_template_csv_for_target(xlsx_path: Path, b2_value: st
 
     site_target = str(d7_value or '').strip()
     search_roots = [
-        NETBOX_DATA_DIR,
         NETBOX_UPLOAD_DIR,
         os.path.join(NETBOX_UPLOAD_DIR, 'data'),
         os.path.join(NETBOX_LEGACY_PROJECT_DIR, 'data'),
@@ -5591,11 +5591,17 @@ def netbox_import_preview():
     d7_value = str(data.get('d7', '') or '').strip()
     if not b2_value or not d4_value or not d7_value:
         return jsonify({'error': 'b2, d4, and d7 are required'}), 400
-    try:
-        limit = int(data.get('limit', 25))
-    except Exception:
-        limit = 25
-    limit = max(1, min(200, limit))
+    raw_limit = data.get('limit', None)
+    limit: int | None
+    if raw_limit in (None, '', 'all'):
+        limit = None
+    else:
+        try:
+            limit = int(raw_limit)
+        except Exception:
+            return jsonify({'error': 'limit must be an integer, "all", or omitted'}), 400
+        if limit <= 0:
+            limit = None
 
     try:
         xlsx_path = Path(NETBOX_XLSX_FILE)
@@ -5607,6 +5613,16 @@ def netbox_import_preview():
             d4_value=d4_value,
             d7_value=d7_value,
         )
+
+        # Keep preview behavior aligned with export by always refreshing
+        # the target CSV file for the selected site.
+        output_dir = Path(NETBOX_DATA_DIR)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_name = f'{safe_filename(g7_value)}.csv'
+        output_path = output_dir / output_name
+        with output_path.open('w', newline='', encoding='utf-8') as f:
+            csv.writer(f).writerows(rows)
+
         header = rows[0] if rows else []
         data_rows = rows[1:] if len(rows) > 1 else []
         return jsonify({
@@ -5614,12 +5630,13 @@ def netbox_import_preview():
             'd4': d4_value,
             'd7': d7_value,
             'g7': g7_value,
-            'filename': f'{safe_filename(g7_value)}.csv',
+            'filename': output_name,
+            'download_url': url_for('netbox_import_download', filename=output_name),
             'columns': len(header),
             'total_rows': len(data_rows),
             'header': header,
-            'rows': data_rows[:limit],
-            'preview_limit': limit,
+            'rows': data_rows if limit is None else data_rows[:limit],
+            'preview_limit': 'all' if limit is None else limit,
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500

@@ -347,6 +347,39 @@ def _template_rows_from_workbook(reader: XlsxReader) -> list[list[str]]:
     return rows
 
 
+def _template_rows_from_csv(template_csv_path: Path) -> list[list[str]]:
+    if not template_csv_path.exists():
+        raise ValueError(f"Template CSV not found: {template_csv_path}")
+    with template_csv_path.open(newline="", encoding="utf-8") as f:
+        rows = [list(row) for row in csv.reader(f) if any(str(cell or "").strip() for cell in row)]
+    if len(rows) < 2:
+        raise ValueError(f"Template CSV {template_csv_path} has no usable data rows.")
+    return rows
+
+
+def _facility_short_code(value: str) -> str:
+    raw = re.sub(r"[^A-Za-z0-9]+", "", str(value or "").strip())
+    if len(raw) > 4 and raw[-4:].isalpha():
+        return raw[:-4]
+    return raw
+
+
+def _rack_short_code_from_template_rows(template_rows: list[list[str]]) -> str:
+    for row in template_rows:
+        if not row or len(row) <= 3:
+            continue
+        ident = str(row[0] or "").strip()
+        if _section_from_identifier(ident) != "racks":
+            continue
+        if ident.endswith("-h"):
+            continue
+        rack_name = str(row[3] or "").strip()
+        m = re.match(r"^([A-Za-z0-9]+)\.\d{2}\.\d{2}$", rack_name)
+        if m:
+            return m.group(1)
+    return ""
+
+
 def _template_rows_from_config_filter(reader: XlsxReader, d4_value: str) -> list[list[str]]:
     config_cells = reader.parse_sheet_cells("Netbox-Config")
     config_matrix = build_sheet_matrix(config_cells)
@@ -369,6 +402,51 @@ def _template_rows_from_config_filter(reader: XlsxReader, d4_value: str) -> list
     if len(rows) < 2:
         raise ValueError('Workbook-filtered Netbox-import data has no usable rows.')
     return rows
+
+
+def _resolve_template_baseline(
+    reader: XlsxReader,
+    xlsx_path: Path,
+    source_matrix: list[list[str]],
+    source_headers: list[str],
+    match_key: str,
+    template_rows: list[list[str]],
+) -> tuple[str, str, str, list[str], list[str]] | None:
+    template_sample = template_rows[1]
+    template_site = template_sample[2].strip() if len(template_sample) > 2 else ""
+    template_slug = template_sample[3].strip() if len(template_sample) > 3 else ""
+    template_facility = template_sample[8].strip() if len(template_sample) > 8 else ""
+
+    found_old = _find_row_in_sheet(
+        source_matrix=source_matrix,
+        match_key=match_key,
+        template_facility=template_facility,
+        template_site=template_site,
+    )
+    if found_old is not None:
+        old_headers, old_row = found_old
+        return template_site, template_slug, template_facility, old_headers, old_row
+
+    old_headers = source_headers
+    old_row = None
+    for candidate_b2 in list_b2_options(xlsx_path):
+        try:
+            candidate_matrix = _source_sheet_matrix(reader, candidate_b2)
+        except Exception:
+            continue
+        candidate_found = _find_row_in_sheet(
+            source_matrix=candidate_matrix,
+            match_key=match_key,
+            template_facility=template_facility,
+            template_site=template_site,
+        )
+        if candidate_found is not None:
+            old_headers, old_row = candidate_found
+            break
+
+    if old_row is None:
+        return None
+    return template_site, template_slug, template_facility, old_headers, old_row
 
 
 def list_d7_options(xlsx_path: Path, b2_value: str) -> list[str]:
@@ -431,15 +509,17 @@ def build_netbox_import_export(
             )
 
         workbook_d4 = get_cell(config_cells, "D4").strip()
+        template_rows: list[list[str]] | None = None
         if d4_value and d4_value != workbook_d4:
             template_rows = _template_rows_from_config_filter(reader, d4_value)
-        else:
-            template_rows = _template_rows_from_workbook(reader)
+        elif template_csv_path is not None:
+            try:
+                template_rows = _template_rows_from_csv(template_csv_path)
+            except Exception:
+                template_rows = None
 
-        template_sample = template_rows[1]
-        template_site = template_sample[2].strip() if len(template_sample) > 2 else ""
-        template_slug = template_sample[3].strip() if len(template_sample) > 3 else ""
-        template_facility = template_sample[8].strip() if len(template_sample) > 8 else ""
+        if template_rows is None:
+            template_rows = _template_rows_from_workbook(reader)
 
         new_row = row_from_source_by_site(source_matrix, d7_value, site_col)
         if new_row is None:
@@ -453,37 +533,29 @@ def build_netbox_import_export(
                 f'Could not resolve Netbox-Config!G7 value from source row for "{d7_value}".'
             )
 
-        found_old = _find_row_in_sheet(
+        baseline = _resolve_template_baseline(
+            reader=reader,
+            xlsx_path=xlsx_path,
             source_matrix=source_matrix,
+            source_headers=source_headers,
             match_key=match_key,
-            template_facility=template_facility,
-            template_site=template_site,
+            template_rows=template_rows,
         )
-        if found_old is not None:
-            old_headers, old_row = found_old
-        else:
-            old_headers = source_headers
-            old_row = None
-            # Template baseline may come from a different B2 sheet (e.g., NC template
-            # while exporting PTC). Search all known B2 options.
-            for candidate_b2 in list_b2_options(xlsx_path):
-                try:
-                    candidate_matrix = _source_sheet_matrix(reader, candidate_b2)
-                except Exception:
-                    continue
-                candidate_found = _find_row_in_sheet(
-                    source_matrix=candidate_matrix,
-                    match_key=match_key,
-                    template_facility=template_facility,
-                    template_site=template_site,
-                )
-                if candidate_found is not None:
-                    old_headers, old_row = candidate_found
-                    break
-            if old_row is None:
-                raise ValueError(
-                    "Could not resolve template baseline row from Netbox-import template values."
-                )
+        if baseline is None and template_csv_path is not None and not (d4_value and d4_value != workbook_d4):
+            template_rows = _template_rows_from_workbook(reader)
+            baseline = _resolve_template_baseline(
+                reader=reader,
+                xlsx_path=xlsx_path,
+                source_matrix=source_matrix,
+                source_headers=source_headers,
+                match_key=match_key,
+                template_rows=template_rows,
+            )
+        if baseline is None:
+            raise ValueError(
+                "Could not resolve template baseline row from Netbox-import template values."
+            )
+        template_site, template_slug, template_facility, old_headers, old_row = baseline
 
         replacements_map: dict[str, str] = {}
         new_header_index: dict[str, int] = {}
@@ -509,6 +581,13 @@ def build_netbox_import_export(
             replacements_map[template_site] = d7_value
         if template_slug:
             replacements_map[template_slug] = slugify_site(d7_value)
+        old_short_code = _facility_short_code(template_facility)
+        new_short_code = _facility_short_code(g7_value)
+        if old_short_code and new_short_code and old_short_code != new_short_code:
+            replacements_map[f"{old_short_code}."] = f"{new_short_code}."
+        rack_short_code = _rack_short_code_from_template_rows(template_rows)
+        if rack_short_code and new_short_code and rack_short_code != new_short_code:
+            replacements_map[f"{rack_short_code}."] = f"{new_short_code}."
 
         replacements = sorted(replacements_map.items(), key=lambda p: len(p[0]), reverse=True)
         prefix_replacements = [
