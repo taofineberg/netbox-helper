@@ -2843,7 +2843,7 @@ async function nbimpPreview() {
         const r = await fetch('/netbox-import/api/preview', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ b2, d4, d7, limit: 25 }),
+            body: JSON.stringify({ b2, d4, d7 }),
         });
         const d = await r.json();
         if (d.error) throw new Error(d.error);
