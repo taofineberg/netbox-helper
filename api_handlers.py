@@ -1435,6 +1435,38 @@ class NetboxAPIHandler:
                 
             # Check if cable exists between these endpoints
             if term_a.cable or term_b.cable:
+                same_cable = bool(term_a.cable and term_b.cable and term_a.cable.id == term_b.cable.id)
+
+                # If both endpoints already share the same cable, allow attribute updates
+                # without forcing full replace/recreate.
+                if same_cable and not replace:
+                    existing_cable = term_a.cable
+                    update_data = {'status': row.get('status', 'connected').strip()}
+
+                    cable_type = row.get('type', '').strip()
+                    if cable_type:
+                        update_data['type'] = cable_type
+
+                    cable_color = row.get('color', '').strip().replace('#', '')
+                    if cable_color:
+                        update_data['color'] = cable_color
+
+                    result['action'] = 'update'
+                    if dry_run:
+                        result['success'] = True
+                        result['message'] = '[DRY RUN] Would update existing cable attributes'
+                        logger.info(result['message'])
+                        return result
+
+                    for key, value in update_data.items():
+                        setattr(existing_cable, key, value)
+                    existing_cable.save()
+
+                    result['success'] = True
+                    result['message'] = 'Updated existing cable attributes'
+                    logger.info(result['message'])
+                    return result
+
                 if not replace:
                     result['action'] = 'skipped'
                     result['message'] = f'Cable already exists for Side A or Side B (skipped)'
