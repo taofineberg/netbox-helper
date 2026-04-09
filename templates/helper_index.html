@@ -222,6 +222,22 @@
         .queue-table tr:last-child td { border-bottom: none; }
         .queue-table tr.selected td { background: rgba(88,166,255,0.06); }
         .queue-table tr:hover td    { background: rgba(255,255,255,0.02); cursor: pointer; }
+        .nbimp-filter-row th {
+            padding: 6px 8px;
+            border-bottom: 1px solid rgba(48,54,61,0.5);
+            background: rgba(1,4,9,0.45);
+        }
+        .nbimp-filter-input {
+            width: 100%;
+            background: #0d1117;
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            color: var(--text);
+            padding: 6px 8px;
+            font-size: 0.78rem;
+            font-family: inherit;
+        }
+        .nbimp-filter-input:focus { border-color: var(--accent); outline: none; }
 
         .queue-actions { display: flex; gap: 10px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
         .queue-empty { color: var(--muted); font-size: 0.88rem; text-align: center; padding: 20px 0 8px; }
@@ -2325,6 +2341,7 @@ const nbimpSummary     = document.getElementById('nbimpSummary');
 const nbimpInfoLine    = document.getElementById('nbimpInfoLine');
 const nbimpPreviewHead = document.getElementById('nbimpPreviewHead');
 const nbimpPreviewBody = document.getElementById('nbimpPreviewBody');
+let nbimpColumnFilters = [];
 const errorSummaryBox  = document.getElementById('errorSummaryBox');
 const errorSummaryRows = document.getElementById('errorSummaryRows');
 const remediationTerminal = document.getElementById('remediationTerminal');
@@ -2738,12 +2755,36 @@ function nbimpRenderPreview(header, rows) {
     nbimpPreviewHead.innerHTML = '';
     nbimpPreviewBody.innerHTML = '';
     if (!Array.isArray(header) || !header.length) {
+        nbimpColumnFilters = [];
         nbimpPreviewBody.innerHTML = '<tr><td style="padding:10px; color:var(--muted);">No preview data.</td></tr>';
         return;
     }
+
+    const prevFilters = Array.isArray(nbimpColumnFilters) ? nbimpColumnFilters.slice() : [];
+    nbimpColumnFilters = header.map((_, idx) => String(prevFilters[idx] || ''));
+
     const hr = document.createElement('tr');
     hr.innerHTML = header.map(h => `<th>${esc(h || '')}</th>`).join('');
     nbimpPreviewHead.appendChild(hr);
+
+    const fr = document.createElement('tr');
+    fr.className = 'nbimp-filter-row';
+    fr.innerHTML = header.map((h, idx) => {
+        const ph = esc(`Search ${h || `col ${idx + 1}`}`);
+        const val = esc(nbimpColumnFilters[idx] || '');
+        return `<th><input class="nbimp-filter-input" data-col="${idx}" placeholder="${ph}" value="${val}"></th>`;
+    }).join('');
+    nbimpPreviewHead.appendChild(fr);
+
+    fr.querySelectorAll('.nbimp-filter-input').forEach(inp => {
+        inp.addEventListener('input', (ev) => {
+            const col = Number(ev.target.dataset.col || -1);
+            if (col < 0) return;
+            nbimpColumnFilters[col] = String(ev.target.value || '');
+            nbimpApplyPreviewFilters();
+        });
+    });
+
     if (!Array.isArray(rows) || !rows.length) {
         nbimpPreviewBody.innerHTML = `<tr><td colspan="${header.length}" style="padding:10px; color:var(--muted);">No rows.</td></tr>`;
         return;
@@ -2752,6 +2793,31 @@ function nbimpRenderPreview(header, rows) {
         const tr = document.createElement('tr');
         tr.innerHTML = r.map(v => `<td>${esc(v || '')}</td>`).join('');
         nbimpPreviewBody.appendChild(tr);
+    });
+    nbimpApplyPreviewFilters();
+}
+
+function nbimpApplyPreviewFilters() {
+    const active = (nbimpColumnFilters || []).map(v => String(v || '').trim().toLowerCase());
+    const hasActive = active.some(Boolean);
+    const rows = Array.from(nbimpPreviewBody.querySelectorAll('tr'));
+    rows.forEach(tr => {
+        const cells = Array.from(tr.querySelectorAll('td'));
+        if (!hasActive) {
+            tr.style.display = '';
+            return;
+        }
+        let match = true;
+        for (let i = 0; i < active.length; i++) {
+            const filterVal = active[i];
+            if (!filterVal) continue;
+            const cellText = String(cells[i]?.textContent || '').toLowerCase();
+            if (!cellText.includes(filterVal)) {
+                match = false;
+                break;
+            }
+        }
+        tr.style.display = match ? '' : 'none';
     });
 }
 

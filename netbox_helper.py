@@ -464,6 +464,12 @@ def _template_csv_site_name(template_path: Path) -> str:
 
 
 def _resolve_netbox_import_template_csv_for_target(xlsx_path: Path, b2_value: str, d7_value: str) -> Path:
+    use_site_template = str(os.getenv('NBH_NETBOX_IMPORT_USE_SITE_TEMPLATE', '') or '').strip().lower() in {
+        '1', 'true', 'yes', 'on'
+    }
+    if not use_site_template:
+        return _resolve_netbox_import_template_csv()
+
     facility = ''
     try:
         facility = _resolve_target_facility_code(xlsx_path, b2_value, d7_value)
