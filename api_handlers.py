@@ -1281,23 +1281,16 @@ class NetboxAPIHandler:
                 if not module_type:
                     module_type = module_types[0]
             
-            # If still not found, create it under the Generic manufacturer
-            if not module_type and not dry_run:
-                manufacturer = self._get_or_create_safe(
-                    self.api.dcim.manufacturers,
-                    {'name': 'Generic', 'slug': 'generic'},
-                    dry_run=dry_run,
-                    name='Generic',
+            if not module_type:
+                device_model = str(getattr(getattr(device, 'device_type', None), 'model', '') or '').strip()
+                device_mfr = str(getattr(getattr(getattr(device, 'device_type', None), 'manufacturer', None), 'name', '') or '').strip()
+                result['message'] = (
+                    f'Module type missing for module import. '
+                    f'Required create before retry: ModuleType(model="{module_type_name}"). '
+                    f'Import row context: device="{device_name}", module_bay="{display_bay_name}", '
+                    f'device_type="{device_model}", manufacturer="{device_mfr}".'
                 )
-                if manufacturer:
-                    module_type = self._get_or_create_safe(
-                        self.api.dcim.module_types,
-                        {'model': module_type_name, 'manufacturer': manufacturer.id},
-                        dry_run=dry_run,
-                        model=module_type_name,
-                        manufacturer_id=manufacturer.id,
-                    )
-                logger.info(f'Created module type "{module_type_name}"')
+                return result
             
             # Prepare data
             data = {
