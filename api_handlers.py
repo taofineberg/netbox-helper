@@ -910,33 +910,36 @@ class NetboxAPIHandler:
                 result['message'] = f'Site "{site_name}" not found'
                 return result
             
-            # Get or create manufacturer
+            # Manufacturer must exist for strict device-type matching.
             manufacturer_name = row.get('manufacturer', '').strip()
             if not manufacturer_name:
                 result['message'] = self._missing_required_message('device', row, ['manufacturer'])
                 return result
 
-            manufacturer = self._get_or_create_safe(
-                self.api.dcim.manufacturers,
-                {'name': manufacturer_name, 'slug': manufacturer_name.lower().replace(' ', '-')},
-                dry_run=dry_run,
-                name=manufacturer_name,
-            )
-
-            # Get or create device type
-            device_type = None
-            if manufacturer:
-                device_type = self._get_or_create_safe(
-                    self.api.dcim.device_types,
-                    {
-                        'model': device_type_name,
-                        'slug': device_type_name.lower().replace(' ', '-').replace('/', '-').replace('+', 'plus'),
-                        'manufacturer': manufacturer.id,
-                    },
-                    dry_run=dry_run,
-                    model=device_type_name,
-                    manufacturer_id=manufacturer.id,
+            manufacturer = self.get_or_none(self.api.dcim.manufacturers, name=manufacturer_name)
+            if not manufacturer:
+                result['message'] = (
+                    f'Manufacturer "{manufacturer_name}" not found for device import. '
+                    f'Required create before retry: Manufacturer(name="{manufacturer_name}"). '
+                    f'Import row context: device="{name}", site="{site_name}", '
+                    f'device_type="{device_type_name}", role="{role_name}".'
                 )
+                return result
+
+            # Device type must already exist. Do not auto-create.
+            device_type = self.get_or_none(
+                self.api.dcim.device_types,
+                model=device_type_name,
+                manufacturer_id=manufacturer.id,
+            )
+            if not device_type:
+                result['message'] = (
+                    f'Device type missing for device import. '
+                    f'Required create before retry: DeviceType(model="{device_type_name}", '
+                    f'manufacturer="{manufacturer_name}"). '
+                    f'Import row context: device="{name}", site="{site_name}", role="{role_name}".'
+                )
+                return result
 
             # Get or create device role
             role = self._get_or_create_safe(
