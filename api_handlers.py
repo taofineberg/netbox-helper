@@ -319,7 +319,18 @@ class NetboxAPIHandler:
             stats['duration_seconds'] = round(time.monotonic() - started, 3)
             return stats
 
-        # Remove existing template-derived component types first.
+        # Mapping from component endpoint to its template endpoint (used for smart delete).
+        _comp_to_tmpl_ep = {
+            'front_ports': 'front_port_templates',
+            'rear_ports': 'rear_port_templates',
+            'power_outlets': 'power_outlet_templates',
+            'power_ports': 'power_port_templates',
+            'module_bays': 'module_bay_templates',
+        }
+
+        # Remove components that do NOT belong to the target device type's templates.
+        # Components whose names already match a template are kept in place to avoid
+        # unnecessary branch noise (e.g. 432 front/rear ports on a clean-site import).
         delete_order = [
             ('front_ports', {}),
             ('rear_ports', {}),
@@ -331,8 +342,24 @@ class NetboxAPIHandler:
             endpoint = getattr(dcim, endpoint_name, None)
             if endpoint is None:
                 continue
+            # Build the set of names defined in the target type's templates.
+            tmpl_names: set = set()
+            tmpl_ep_name = _comp_to_tmpl_ep.get(endpoint_name)
+            tmpl_ep = getattr(dcim, tmpl_ep_name, None) if tmpl_ep_name else None
+            if tmpl_ep is not None:
+                try:
+                    for t in tmpl_ep.filter(device_type_id=target_device_type_id):
+                        n = str(self._template_value(t, 'name', '') or '').strip()
+                        if n:
+                            tmpl_names.add(n)
+                except Exception:
+                    pass  # On failure, tmpl_names stays empty -> all deleted (safe fallback).
             try:
                 for rec in endpoint.filter(device_id=dev_id, **filt):
+                    rec_name = str(getattr(rec, 'name', '') or '').strip()
+                    # Keep components whose names are in the target type's templates.
+                    if tmpl_names and rec_name in tmpl_names:
+                        continue
                     try:
                         rec.delete()
                         stats['deleted'] += 1
@@ -422,11 +449,29 @@ class NetboxAPIHandler:
         power_port_map: Dict[int, Any] = {}
         try:
             pp_templates = _safe_templates('power_port_templates')
+            # Fetch existing power ports to skip duplicates and pre-fill the map.
+            _existing_pp: Dict[str, Any] = {}
+            try:
+                for _r in dcim.power_ports.filter(device_id=dev_id):
+                    _existing_pp[str(getattr(_r, 'name', '') or '').strip()] = _r
+            except Exception:
+                pass
+            # Pre-populate map from existing records so power outlets can reference them.
+            for tmpl in pp_templates:
+                tid = _template_id(tmpl)
+                if tid:
+                    tmpl_name = str(self._template_value(tmpl, 'name', '') or '').strip()
+                    if tmpl_name in _existing_pp:
+                        power_port_map[tid] = _existing_pp[tmpl_name]
+            _existing_pp_names = set(_existing_pp.keys())
             pp_payloads: List[Dict[str, Any]] = []
             for tmpl in pp_templates:
+                _n = str(self._template_value(tmpl, 'name', '') or '').strip()
+                if _n in _existing_pp_names:
+                    continue  # Already exists, skip to avoid branch noise.
                 payload = {
                     'device': dev_id,
-                    'name': str(self._template_value(tmpl, 'name', '') or ''),
+                    'name': _n,
                 }
                 tval = self._template_value(tmpl, 'type')
                 if tval:
@@ -438,19 +483,28 @@ class NetboxAPIHandler:
                 pp_payloads.append(payload)
 
             pp_created = _bulk_create(getattr(dcim, 'power_ports', None), pp_payloads, 'Power-port template rebuild')
-            power_port_map = _map_created_records(pp_templates, pp_created, ['name', 'type'])
+            new_pp_tmpls = [t for t in pp_templates if str(self._template_value(t, 'name', '') or '').strip() not in _existing_pp_names]
+            power_port_map.update(_map_created_records(new_pp_tmpls, pp_created, ['name', 'type']))
             stats['power_ports'] = len(pp_created)
         except Exception:
             logger.debug('Power-port template rebuild failed for device %s', dev_id, exc_info=True)
 
-        # Power outlets from templates (map to created power ports)
+        # Power outlets from templates (map to created/existing power ports)
         try:
             po_templates = _safe_templates('power_outlet_templates')
+            _existing_po_names: set = set()
+            try:
+                _existing_po_names = {str(getattr(_r, 'name', '') or '').strip() for _r in dcim.power_outlets.filter(device_id=dev_id)}
+            except Exception:
+                pass
             po_payloads: List[Dict[str, Any]] = []
             for tmpl in po_templates:
+                _n = str(self._template_value(tmpl, 'name', '') or '').strip()
+                if _n in _existing_po_names:
+                    continue  # Already exists, skip.
                 payload = {
                     'device': dev_id,
-                    'name': str(self._template_value(tmpl, 'name', '') or ''),
+                    'name': _n,
                 }
                 tval = self._template_value(tmpl, 'type')
                 if tval:
@@ -483,11 +537,29 @@ class NetboxAPIHandler:
         rear_port_map: Dict[int, Any] = {}
         try:
             rp_templates = _safe_templates('rear_port_templates')
+            # Fetch existing rear ports to skip duplicates and pre-fill the map.
+            _existing_rp: Dict[str, Any] = {}
+            try:
+                for _r in dcim.rear_ports.filter(device_id=dev_id):
+                    _existing_rp[str(getattr(_r, 'name', '') or '').strip()] = _r
+            except Exception:
+                pass
+            # Pre-populate rear_port_map from existing records so front ports can reference them.
+            for tmpl in rp_templates:
+                tid = _template_id(tmpl)
+                if tid:
+                    tmpl_name = str(self._template_value(tmpl, 'name', '') or '').strip()
+                    if tmpl_name in _existing_rp:
+                        rear_port_map[tid] = _existing_rp[tmpl_name]
+            _existing_rp_names = set(_existing_rp.keys())
             rp_payloads: List[Dict[str, Any]] = []
             for tmpl in rp_templates:
+                _n = str(self._template_value(tmpl, 'name', '') or '').strip()
+                if _n in _existing_rp_names:
+                    continue  # Already exists, skip to avoid branch noise.
                 payload = {
                     'device': dev_id,
-                    'name': str(self._template_value(tmpl, 'name', '') or ''),
+                    'name': _n,
                 }
                 tval = self._template_value(tmpl, 'type')
                 if tval:
@@ -502,7 +574,8 @@ class NetboxAPIHandler:
                 rp_payloads.append(payload)
 
             rp_created = _bulk_create(getattr(dcim, 'rear_ports', None), rp_payloads, 'Rear-port template rebuild')
-            rear_port_map = _map_created_records(rp_templates, rp_created, ['name', 'type', 'positions'])
+            new_rp_tmpls = [t for t in rp_templates if str(self._template_value(t, 'name', '') or '').strip() not in _existing_rp_names]
+            rear_port_map.update(_map_created_records(new_rp_tmpls, rp_created, ['name', 'type', 'positions']))
             stats['rear_ports'] = len(rp_created)
         except Exception:
             logger.debug('Rear-port template rebuild failed for device %s', dev_id, exc_info=True)
@@ -510,11 +583,19 @@ class NetboxAPIHandler:
         # Then front ports mapped to rear ports
         try:
             fp_templates = _safe_templates('front_port_templates')
+            _existing_fp_names: set = set()
+            try:
+                _existing_fp_names = {str(getattr(_r, 'name', '') or '').strip() for _r in dcim.front_ports.filter(device_id=dev_id)}
+            except Exception:
+                pass
             fp_payloads: List[Dict[str, Any]] = []
             for tmpl in fp_templates:
+                _n = str(self._template_value(tmpl, 'name', '') or '').strip()
+                if _n in _existing_fp_names:
+                    continue  # Already exists, skip to avoid branch noise.
                 payload = {
                     'device': dev_id,
-                    'name': str(self._template_value(tmpl, 'name', '') or ''),
+                    'name': _n,
                 }
                 tval = self._template_value(tmpl, 'type')
                 if tval:
@@ -546,11 +627,19 @@ class NetboxAPIHandler:
         # Module bays
         try:
             mb_templates = _safe_templates('module_bay_templates')
+            _existing_mb_names: set = set()
+            try:
+                _existing_mb_names = {str(getattr(_r, 'name', '') or '').strip() for _r in dcim.module_bays.filter(device_id=dev_id)}
+            except Exception:
+                pass
             mb_payloads: List[Dict[str, Any]] = []
             for tmpl in mb_templates:
+                _n = str(self._template_value(tmpl, 'name', '') or '').strip()
+                if _n in _existing_mb_names:
+                    continue  # Already exists, skip.
                 payload = {
                     'device': dev_id,
-                    'name': str(self._template_value(tmpl, 'name', '') or ''),
+                    'name': _n,
                 }
                 for fld in ('label', 'description'):
                     v = self._template_value(tmpl, fld)
