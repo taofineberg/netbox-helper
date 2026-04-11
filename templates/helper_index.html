@@ -1239,6 +1239,7 @@
                 <label style="display:block; font-size:0.78rem; color:var(--muted); margin-bottom:6px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Scope</label>
                 <select id="srvCmpScopeSelect" style="width:100%;" onchange="serverCompareOnScopeChange()">
                     <option value="all">All</option>
+                    <option value="tenant">Tenant</option>
                     <option value="site">Site</option>
                     <option value="region">Region</option>
                     <option value="device">Device</option>
@@ -6456,7 +6457,7 @@ function serverSiteOnSiteSelectionChange() {
 // ============================================================
 // ── SERVER COMPARE SECTION ──
 // ============================================================
-let srvCmpOptionsByScope = {regions: [], sites: [], device_types: [], devices: []};
+let srvCmpOptionsByScope = {tenants: [], regions: [], sites: [], device_types: [], devices: []};
 let srvCmpResults = {};
 let srvCmpRows = {};
 let srvCmpSelectedRows = new Set();
@@ -6567,6 +6568,7 @@ function serverCompareOnScopeChange() {
 
 function serverCompareScopeListKey(scope) {
     return {
+        tenant: 'tenants',
         region: 'regions',
         site: 'sites',
         device_type: 'device_types',
@@ -6577,6 +6579,7 @@ function serverCompareScopeListKey(scope) {
 function serverCompareScopeLabel(scope) {
     return {
         all: 'All',
+        tenant: 'Tenant',
         region: 'Region',
         site: 'Site',
         device_type: 'Device Type',
@@ -6618,7 +6621,7 @@ async function serverCompareLoadScopeOptions(force = false) {
     const infoEl = document.getElementById('srvCmpInfo');
     if (!sourceId) {
         srvCmpLoadedSourceId = '';
-        srvCmpOptionsByScope = {regions: [], sites: [], device_types: [], devices: []};
+        srvCmpOptionsByScope = {tenants: [], regions: [], sites: [], device_types: [], devices: []};
         serverCompareRenderItemSelect();
         serverSiteRefreshSiteSelect();
         if (infoEl) infoEl.textContent = 'Select a source server to load scope items.';
@@ -6635,15 +6638,15 @@ async function serverCompareLoadScopeOptions(force = false) {
         const r = await fetch(`/sync/api/server-compare/options?source_id=${encodeURIComponent(sourceId)}`);
         const d = await r.json();
         if (!r.ok || d.error) throw new Error(d.error || 'Failed to load source options');
-        srvCmpOptionsByScope = d.options || {regions: [], sites: [], device_types: [], devices: []};
+        srvCmpOptionsByScope = d.options || {tenants: [], regions: [], sites: [], device_types: [], devices: []};
         srvCmpLoadedSourceId = sourceId;
         serverCompareRenderItemSelect();
         serverSiteRefreshSiteSelect();
         if (infoEl) {
-            infoEl.textContent = `Loaded source selections: ${srvCmpOptionsByScope.regions?.length || 0} regions, ${srvCmpOptionsByScope.sites?.length || 0} sites, ${srvCmpOptionsByScope.device_types?.length || 0} device types, ${srvCmpOptionsByScope.devices?.length || 0} devices.`;
+            infoEl.textContent = `Loaded source selections: ${srvCmpOptionsByScope.tenants?.length || 0} tenants, ${srvCmpOptionsByScope.regions?.length || 0} regions, ${srvCmpOptionsByScope.sites?.length || 0} sites, ${srvCmpOptionsByScope.device_types?.length || 0} device types, ${srvCmpOptionsByScope.devices?.length || 0} devices.`;
         }
     } catch (err) {
-        srvCmpOptionsByScope = {regions: [], sites: [], device_types: [], devices: []};
+        srvCmpOptionsByScope = {tenants: [], regions: [], sites: [], device_types: [], devices: []};
         serverCompareRenderItemSelect();
         serverSiteRefreshSiteSelect();
         if (infoEl) infoEl.textContent = `Failed to load source options: ${err.message}`;

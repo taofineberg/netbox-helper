@@ -15,8 +15,9 @@ import requests
 from netbox_branching import resolve_branch_header_value
 
 
-OBJECT_TYPE_ORDER = ["region", "site", "device_type", "device"]
+OBJECT_TYPE_ORDER = ["tenant", "region", "site", "device_type", "device"]
 OBJECT_TYPE_META = {
+    "tenant": {"label": "Tenants", "endpoint": "tenancy/tenants"},
     "region": {"label": "Regions", "endpoint": "dcim/regions"},
     "site": {"label": "Sites", "endpoint": "dcim/sites"},
     "device_type": {"label": "Device Types", "endpoint": "dcim/device-types"},
@@ -531,11 +532,20 @@ def list_compare_options(source_instance: Dict[str, Any]) -> Dict[str, List[Dict
     """Return source-side dropdown options for each supported scope."""
     src = NetBoxClient(source_instance)
 
+    tenants = src.fetch_all(_endpoint_for_type("tenant"))
     regions = src.fetch_all(_endpoint_for_type("region"))
     sites = src.fetch_all(_endpoint_for_type("site"))
     dtypes = src.fetch_all(_endpoint_for_type("device_type"))
     devices = src.fetch_all(_endpoint_for_type("device"))
 
+    tenant_options = [
+        {
+            "key": _norm_text(t.get("slug")),
+            "name": _norm_text(t.get("name")),
+        }
+        for t in tenants
+        if _norm_text(t.get("slug")) and _norm_text(t.get("name"))
+    ]
     region_options = [
         {"key": _region_key(r), "name": _norm_text(r.get("name"))}
         for r in regions
@@ -568,12 +578,14 @@ def list_compare_options(source_instance: Dict[str, Any]) -> Dict[str, List[Dict
         label = key if not site_name else f"{key} ({site_name})"
         device_options.append({"key": key, "name": label})
 
+    tenant_options.sort(key=lambda x: x["name"].lower())
     region_options.sort(key=lambda x: x["name"].lower())
     site_options.sort(key=lambda x: x["name"].lower())
     dtype_options.sort(key=lambda x: x["name"].lower())
     device_options.sort(key=lambda x: x["name"].lower())
 
     return {
+        "tenants": tenant_options,
         "regions": region_options,
         "sites": site_options,
         "device_types": dtype_options,
@@ -628,9 +640,9 @@ def _scope_types(scope: str) -> List[str]:
     scope_norm = str(scope or "all").strip().lower()
     if scope_norm == "all":
         return list(OBJECT_TYPE_ORDER)
-    if scope_norm in {"region", "site", "device", "device_type"}:
+    if scope_norm in {"tenant", "region", "site", "device", "device_type"}:
         return [scope_norm]
-    raise ValueError("scope must be one of: all, region, site, device_type, device")
+    raise ValueError("scope must be one of: all, tenant, region, site, device_type, device")
 
 
 def compare_instances(
