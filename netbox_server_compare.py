@@ -61,15 +61,23 @@ class NetBoxClient:
             headers["X-NetBox-Branch"] = self.branch
         return headers
 
-    def fetch_all(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        """Fetch all rows from a paginated NetBox endpoint."""
+    def fetch_all(self, endpoint: str, params: Optional[Dict[str, Any]] = None,
+                  no_branch: bool = False) -> List[Dict[str, Any]]:
+        """Fetch all rows from a paginated NetBox endpoint.
+
+        Pass no_branch=True for global endpoints (e.g. tenancy/tenants) that are
+        not branch-aware — sending X-NetBox-Branch to them causes a 500 error from
+        the NetBox branching plugin.
+        """
         ep = str(endpoint or "").strip().strip("/")
         if not ep:
             return []
 
         use_cache = not params
-        if use_cache and ep in self._cache:
-            return list(self._cache[ep])
+        # Cache key includes branch context to avoid mixing branch-aware and non-branch results
+        cache_key = ep if (not self.branch or no_branch) else f"{ep}:branch={self.branch}"
+        if use_cache and cache_key in self._cache:
+            return list(self._cache[cache_key])
 
         query = dict(params or {})
         if "limit" not in query:
@@ -79,9 +87,13 @@ class NetBoxClient:
         next_url = f"{self.url}/api/{ep}/?{qs}" if qs else f"{self.url}/api/{ep}/"
         rows: List[Dict[str, Any]] = []
 
+        req_headers = self.headers()
+        if no_branch:
+            req_headers.pop("X-NetBox-Branch", None)
+
         while next_url:
             try:
-                resp = requests.get(next_url, headers=self.headers(), verify=self.verify, timeout=30)
+                resp = requests.get(next_url, headers=req_headers, verify=self.verify, timeout=30)
             except requests.exceptions.ConnectionError as exc:
                 raise ValueError(f"Cannot connect to {self.url} — {exc}") from exc
             except requests.exceptions.Timeout as exc:
@@ -105,7 +117,7 @@ class NetBoxClient:
             next_url = data.get("next") if isinstance(data, dict) else None
 
         if use_cache:
-            self._cache[ep] = list(rows)
+            self._cache[cache_key] = list(rows)
         return rows
 
     def post(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -254,6 +266,8 @@ def _device_key(row: Dict[str, Any]) -> str:
 
 
 def _display_name(obj_type: str, row: Dict[str, Any]) -> str:
+    if obj_type == "tenant":
+        return _norm_text(row.get("name")) or _norm_text(row.get("slug")) or "(unknown)"
     if obj_type == "device_type":
         return _norm_text(row.get("model") or _device_type_key(row))
     if obj_type == "region":
@@ -264,6 +278,8 @@ def _display_name(obj_type: str, row: Dict[str, Any]) -> str:
 
 
 def _row_key(obj_type: str, row: Dict[str, Any]) -> str:
+    if obj_type == "tenant":
+        return _norm_text(row.get("slug"))
     if obj_type == "region":
         return _region_key(row)
     if obj_type == "site":
@@ -334,6 +350,12 @@ def _normalize_device(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _normalize_for_type(obj_type: str, row: Dict[str, Any]) -> Dict[str, Any]:
+    if obj_type == "tenant":
+        return {
+            "name": _norm_text(row.get("name")),
+            "slug": _norm_text(row.get("slug")),
+            "description": _norm_text(row.get("description")),
+        }
     if obj_type == "region":
         return _normalize_region(row)
     if obj_type == "site":
@@ -517,6 +539,17 @@ def _endpoint_for_type(obj_type: str) -> str:
     return str(meta["endpoint"])
 
 
+def _fetch_for_type(client: "NetBoxClient", obj_type: str,
+                    params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """fetch_all with automatic no_branch flag from OBJECT_TYPE_META."""
+    meta = OBJECT_TYPE_META.get(obj_type, {})
+    endpoint = meta.get("endpoint")
+    if not endpoint:
+        raise ValueError(f"Unknown object type: {obj_type}")
+    return client.fetch_all(endpoint, params=params,
+                            no_branch=meta.get("no_branch", False))
+
+
 def _label_for_type(obj_type: str) -> str:
     meta = OBJECT_TYPE_META.get(obj_type)
     if not meta:
@@ -532,11 +565,11 @@ def list_compare_options(source_instance: Dict[str, Any]) -> Dict[str, List[Dict
     """Return source-side dropdown options for each supported scope."""
     src = NetBoxClient(source_instance)
 
-    tenants = src.fetch_all(_endpoint_for_type("tenant"))
-    regions = src.fetch_all(_endpoint_for_type("region"))
-    sites = src.fetch_all(_endpoint_for_type("site"))
-    dtypes = src.fetch_all(_endpoint_for_type("device_type"))
-    devices = src.fetch_all(_endpoint_for_type("device"))
+    tenants = _fetch_for_type(src, "tenant")
+    regions = _fetch_for_type(src, "region")
+    sites = _fetch_for_type(src, "site")
+    dtypes = _fetch_for_type(src, "device_type")
+    devices = _fetch_for_type(src, "device")
 
     tenant_options = [
         {
@@ -665,9 +698,8 @@ def compare_instances(
     results: Dict[str, Dict[str, Any]] = {}
 
     for obj_type in _scope_types(scope_norm):
-        endpoint = _endpoint_for_type(obj_type)
-        src_map = _map_rows(obj_type, src.fetch_all(endpoint))
-        dst_map = _map_rows(obj_type, dst.fetch_all(endpoint))
+        src_map = _map_rows(obj_type, _fetch_for_type(src, obj_type))
+        dst_map = _map_rows(obj_type, _fetch_for_type(dst, obj_type))
 
         keys = sorted(set(list(src_map.keys()) + list(dst_map.keys())))
         if sel:
@@ -686,7 +718,7 @@ def compare_instances(
 # ---------------------------------------------------------------------------
 
 def _find_row_by_key(client: NetBoxClient, obj_type: str, key: str) -> Optional[Dict[str, Any]]:
-    rows = client.fetch_all(_endpoint_for_type(obj_type))
+    rows = _fetch_for_type(client, obj_type)
     mapped = _map_rows(obj_type, rows)
     return mapped.get(_norm_text(key))
 
@@ -940,6 +972,28 @@ def _ensure_platform(src: NetBoxClient, dst: NetBoxClient, slug: str) -> int:
     return int(pid)
 
 
+
+
+def _sync_tenant(src: NetBoxClient, dst: NetBoxClient, key: str) -> str:
+    """Sync a tenant object from source to destination."""
+    src_row = _find_row_by_key(src, "tenant", key)
+    if not src_row:
+        raise ValueError(f"Tenant '{key}' not found in source")
+
+    payload: Dict[str, Any] = {
+        "name": _norm_text(src_row.get("name")),
+        "slug": _norm_text(src_row.get("slug")),
+        "description": _norm_text(src_row.get("description")),
+    }
+
+    dst_row = _find_row_by_key(dst, "tenant", key)
+    if dst_row:
+        dst.patch(_endpoint_for_type("tenant"), dst_row["id"], payload)
+        return "updated"
+    dst.post(_endpoint_for_type("tenant"), payload)
+    return "created"
+
+
 def _sync_region(src: NetBoxClient, dst: NetBoxClient, key: str) -> str:
     src_row = _find_row_by_key(src, "region", key)
     if not src_row:
@@ -1113,6 +1167,7 @@ def sync_many(
     dst = NetBoxClient(dest_instance)
 
     sync_order = {
+        "tenant": 5,
         "region": 10,
         "site": 20,
         "device_type": 30,
@@ -1157,7 +1212,9 @@ def sync_many(
             continue
 
         try:
-            if obj_type == "region":
+            if obj_type == "tenant":
+                action = _sync_tenant(src, dst, key)
+            elif obj_type == "region":
                 action = _sync_region(src, dst, key)
             elif obj_type == "site":
                 action = _sync_site(src, dst, key)

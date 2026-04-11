@@ -287,6 +287,215 @@ class NetboxAPIHandler:
             return getattr(raw, 'id', default)
         return raw
 
+    def _verify_front_rear_mapping(self, device: Any) -> Dict[str, Any]:
+        """
+        Sample the front-ports on a device and verify each has a rear_port linked.
+        Returns a summary dict: {total_front, mapped, unmapped, unmapped_names}.
+        Logs a warning for any unmapped front ports.
+        """
+        dev_id = getattr(device, 'id', None)
+        dev_name = str(getattr(device, 'name', '') or '').strip() or str(dev_id)
+        summary: Dict[str, Any] = {'total_front': 0, 'mapped': 0, 'unmapped': 0, 'unmapped_names': []}
+        if not dev_id:
+            return summary
+        try:
+            front_ports = list(self.api.dcim.front_ports.filter(device_id=dev_id))
+            summary['total_front'] = len(front_ports)
+            for fp in front_ports:
+                fp_name = str(getattr(fp, 'name', '') or '').strip()
+                rp = getattr(fp, 'rear_port', None)
+                rp_id = None
+                if isinstance(rp, dict):
+                    rp_id = rp.get('id')
+                elif rp is not None:
+                    rp_id = getattr(rp, 'id', rp)
+                if rp_id:
+                    summary['mapped'] += 1
+                else:
+                    summary['unmapped'] += 1
+                    summary['unmapped_names'].append(fp_name)
+            if summary['unmapped']:
+                logger.warning(
+                    'Device "%s": %d/%d front port(s) missing rear_port mapping: %s',
+                    dev_name,
+                    summary['unmapped'],
+                    summary['total_front'],
+                    ', '.join(summary['unmapped_names'][:10]),
+                )
+            else:
+                logger.debug(
+                    'Device "%s": all %d front port(s) have rear_port mapping ✓',
+                    dev_name,
+                    summary['total_front'],
+                )
+        except Exception:
+            logger.debug('Front/rear mapping verify failed for device %s', dev_id, exc_info=True)
+        return summary
+
+    def _repair_front_rear_mapping(self, device: Any, device_type_id: Optional[int]) -> Dict[str, Any]:
+        """
+        Repair front-port instances that are missing a rear_port link.
+
+        NetBox 4.x structure (confirmed from template-sync code):
+          front_port_template.rear_ports[] = [{'rear_port': <rpt_id>, 'rear_port_position': N, ...}]
+          The 'rear_port' key in each entry IS the rear_port_template ID.
+        This method:
+          1. Fetches front-port-templates via raw HTTP → reads rear_ports[0]['rear_port'] (RPT ID).
+          2. Fetches rear-port-templates via raw HTTP → builds rpt_id → rpt_name.
+          3. Combines to: fp_name → {rpt_name, rear_port_position}.
+          4. Reads rear-port instances on the device (name → instance).
+          5. PATCHes each unmapped front-port instance with the correct rear_port ID.
+
+        Returns {'repaired': N, 'failed': N, 'failed_names': [...]}.
+        """
+        stats: Dict[str, Any] = {'repaired': 0, 'failed': 0, 'failed_names': []}
+        dev_id = getattr(device, 'id', None)
+        dev_name = str(getattr(device, 'name', '') or '').strip() or str(dev_id)
+        if not dev_id or not device_type_id:
+            return stats
+        try:
+            dcim = self.api.dcim
+            base_url = str(getattr(self.api, 'base_url', '') or '').rstrip('/')
+            session  = getattr(self.api, 'http_session', None)
+
+            def _raw_fetch(endpoint: str, params: dict) -> List[Dict]:
+                """Page through a NetBox endpoint and return all results as raw dicts."""
+                results: List[Dict] = []
+                if not (session and base_url):
+                    return results
+                offset, page_size = 0, 500
+                while True:
+                    resp = session.get(
+                        f'{base_url}/api/{endpoint}/',
+                        params={**params, 'limit': page_size, 'offset': offset},
+                    )
+                    if not resp.ok:
+                        break
+                    data = resp.json()
+                    results.extend(data.get('results', []))
+                    if not data.get('next'):
+                        break
+                    offset += page_size
+                return results
+
+            # Step 1: front-port-templates → fp_name → (rpt_id, rear_port_position)
+            fpt_raw = _raw_fetch('dcim/front-port-templates', {'device_type_id': device_type_id})
+            fp_name_to_rpt: Dict[str, Dict] = {}
+            for fpt in fpt_raw:
+                fp_name = str(fpt.get('name', '') or '').strip()
+                if not fp_name:
+                    continue
+                # 4.x: rear_ports[] = [{'rear_port': <rpt_id>, 'rear_port_position': N}]
+                rpt_id = None
+                rear_pos = 1
+                rp_entries = fpt.get('rear_ports') or []
+                if rp_entries:
+                    entry = rp_entries[0]
+                    rpt_id = entry.get('rear_port')   # the RPT ID (NOT 'id')
+                    try:
+                        rear_pos = int(entry.get('rear_port_position', 1) or 1)
+                    except Exception:
+                        rear_pos = 1
+                # Pre-4.x fallback: rear_port is an inline object/id on the FPT itself
+                if not rpt_id:
+                    rp_obj = fpt.get('rear_port')
+                    if isinstance(rp_obj, dict):
+                        rpt_id = rp_obj.get('id')
+                    elif rp_obj is not None:
+                        rpt_id = rp_obj
+                    rear_pos_top = fpt.get('rear_port_position')
+                    if rear_pos_top not in (None, ''):
+                        try:
+                            rear_pos = int(rear_pos_top)
+                        except Exception:
+                            pass
+                if rpt_id:
+                    try:
+                        rpt_id = int(rpt_id)
+                    except Exception:
+                        rpt_id = None
+                if rpt_id:
+                    fp_name_to_rpt[fp_name] = {'rpt_id': rpt_id, 'rear_port_position': rear_pos}
+
+            if not fp_name_to_rpt:
+                logger.warning(
+                    'Device "%s": repair skipped — front-port-templates for device type %s '
+                    'have no rear_port links (template mappings may be unset in NetBox)',
+                    dev_name, device_type_id,
+                )
+                return stats
+
+            # Step 2: rear-port-templates → rpt_id → rpt_name
+            rpt_raw = _raw_fetch('dcim/rear-port-templates', {'device_type_id': device_type_id})
+            rpt_id_to_name: Dict[int, str] = {}
+            for rpt in rpt_raw:
+                try:
+                    rpt_id = int(rpt.get('id', 0) or 0)
+                except Exception:
+                    rpt_id = 0
+                rpt_name = str(rpt.get('name', '') or '').strip()
+                if rpt_id and rpt_name:
+                    rpt_id_to_name[rpt_id] = rpt_name
+
+            # Step 3: resolve fp_name → {rpt_name, rear_port_position}
+            fp_tmpl_to_rp: Dict[str, Dict] = {}
+            for fp_name, info in fp_name_to_rpt.items():
+                rpt_name = rpt_id_to_name.get(info['rpt_id'])
+                if rpt_name:
+                    fp_tmpl_to_rp[fp_name] = {'rpt_name': rpt_name, 'rear_port_position': info['rear_port_position']}
+
+            if not fp_tmpl_to_rp:
+                logger.warning(
+                    'Device "%s": repair skipped — could not resolve rear-port-template names '
+                    'for device type %s (fpt_count=%d, rpt_count=%d)',
+                    dev_name, device_type_id, len(fp_name_to_rpt), len(rpt_raw),
+                )
+                return stats
+
+            # Step 4: rear-port instances on device: name → instance
+            rp_instances: Dict[str, Any] = {}
+            for rp in dcim.rear_ports.filter(device_id=dev_id):
+                rp_name = str(getattr(rp, 'name', '') or '').strip()
+                if rp_name:
+                    rp_instances[rp_name] = rp
+
+            # Step 5: PATCH each unmapped front-port instance
+            for fp in dcim.front_ports.filter(device_id=dev_id):
+                fp_name = str(getattr(fp, 'name', '') or '').strip()
+                rp = getattr(fp, 'rear_port', None)
+                rp_id = rp.get('id') if isinstance(rp, dict) else getattr(rp, 'id', rp)
+                if rp_id:
+                    continue  # already mapped
+
+                mapping = fp_tmpl_to_rp.get(fp_name)
+                if not mapping:
+                    continue
+
+                target_rp = rp_instances.get(mapping['rpt_name'])
+                if not target_rp:
+                    logger.debug('Device "%s": rear-port instance "%s" not found for front-port "%s"',
+                                 dev_name, mapping['rpt_name'], fp_name)
+                    stats['failed'] += 1
+                    stats['failed_names'].append(fp_name)
+                    continue
+
+                try:
+                    fp.update({'rear_port': int(target_rp.id), 'rear_port_position': mapping['rear_port_position']})
+                    stats['repaired'] += 1
+                except Exception as patch_exc:
+                    logger.debug('PATCH front-port "%s" rear_port failed: %s', fp_name, patch_exc)
+                    stats['failed'] += 1
+                    stats['failed_names'].append(fp_name)
+
+            if stats['repaired']:
+                logger.info('Device "%s": repaired %d front-port→rear-port mapping(s) ✓', dev_name, stats['repaired'])
+            if stats['failed']:
+                logger.warning('Device "%s": %d front-port mapping(s) could not be repaired: %s',
+                               dev_name, stats['failed'], ', '.join(stats['failed_names'][:10]))
+        except Exception:
+            logger.debug('Front-rear mapping repair failed for device %s', dev_id, exc_info=True)
+        return stats
+
     def _sync_device_components_from_type(
         self,
         device: Any,
@@ -600,17 +809,49 @@ class NetboxAPIHandler:
                 tval = self._template_value(tmpl, 'type')
                 if tval:
                     payload['type'] = tval
-                rear_tmpl_id = self._template_value(tmpl, 'rear_port')
+
+                # NetBox 4.x: rear_ports[] entry = {'rear_port': <rpt_id>, 'rear_port_position': N}
+                # Pre-4.x:   rear_port is a direct FK object/id on the template itself.
+                rear_tmpl_id = None
+                rp_pos_from_entry = None
+                rear_ports_val = getattr(tmpl, 'rear_ports', None)
+                if isinstance(rear_ports_val, list) and rear_ports_val:
+                    first = rear_ports_val[0]
+                    if isinstance(first, dict):
+                        # 4.x dict entry: key is 'rear_port', not 'id'
+                        rear_tmpl_id = first.get('rear_port') or first.get('id')
+                        rp_pos_from_entry = first.get('rear_port_position')
+                    else:
+                        # pynetbox Record: check .rear_port attr (4.x) then .id
+                        _rp_attr = getattr(first, 'rear_port', None)
+                        if _rp_attr is not None:
+                            rear_tmpl_id = (_rp_attr.get('id') if isinstance(_rp_attr, dict)
+                                            else getattr(_rp_attr, 'id', _rp_attr))
+                        if rear_tmpl_id in (None, ''):
+                            rear_tmpl_id = getattr(first, 'id', None)
+                        try:
+                            rp_pos_from_entry = int(getattr(first, 'rear_port_position', None) or 1)
+                        except Exception:
+                            pass
+                if rear_tmpl_id in (None, ''):
+                    rear_tmpl_id = self._template_value(tmpl, 'rear_port')
+
                 try:
                     rear_tmpl_id = int(rear_tmpl_id) if rear_tmpl_id not in (None, '') else None
                 except Exception:
                     rear_tmpl_id = None
+
                 if rear_tmpl_id:
                     mapped = rear_port_map.get(rear_tmpl_id)
                     mapped_id = _record_id(mapped)
                     if mapped_id:
                         payload['rear_port'] = mapped_id
-                rear_pos = self._template_value(tmpl, 'rear_port_position')
+
+                # Prefer rear_port_position from the rear_ports[] entry (4.x),
+                # fall back to the top-level template field (pre-4.x).
+                rear_pos = rp_pos_from_entry
+                if rear_pos in (None, ''):
+                    rear_pos = self._template_value(tmpl, 'rear_port_position')
                 if rear_pos not in (None, ''):
                     payload['rear_port_position'] = int(rear_pos)
                 for fld in ('label', 'description'):
@@ -1093,15 +1334,17 @@ class NetboxAPIHandler:
                 return result
             
             # Create or update
+            _final_device = None  # track created/updated device for verify step
             if existing and replace:
                 for key, value in data.items():
                     setattr(existing, key, value)
                 existing.save()
+                _final_device = existing
                 result['success'] = True
                 result['message'] = f'Updated device "{name}"'
             else:
                 try:
-                    self.api.dcim.devices.create(data)
+                    _final_device = self.api.dcim.devices.create(data)
                     result['success'] = True
                     result['message'] = f'Created device "{name}"'
                 except Exception as create_exc:
@@ -1114,6 +1357,7 @@ class NetboxAPIHandler:
                             setattr(existing_after, key, value)
                         existing_after.save()
                         sync_stats = self._sync_device_components_from_type(existing_after, data.get('device_type'))
+                        _final_device = existing_after
                         result['success'] = True
                         result['message'] = (
                             f'Updated device "{name}" after transient portmapping create error '
@@ -1141,6 +1385,7 @@ class NetboxAPIHandler:
                                 setattr(created, key, value)
                             created.save()
                             sync_stats = self._sync_device_components_from_type(created, data.get('device_type'))
+                            _final_device = created
                             result['success'] = True
                             result['message'] = (
                                 f'Created device "{name}" using surrogate create fallback '
@@ -1158,7 +1403,20 @@ class NetboxAPIHandler:
                             except Exception:
                                 pass
                             raise
-                
+
+            # Verify front-port → rear-port mapping on the new/updated device.
+            # If any front ports are unmapped (NetBox 4.x branch creation gap),
+            # repair them by reading device-type templates and PATCHing instances.
+            if _final_device is not None:
+                verify = self._verify_front_rear_mapping(_final_device)
+                if verify.get('unmapped', 0) > 0:
+                    repair = self._repair_front_rear_mapping(_final_device, data.get('device_type'))
+                    if repair.get('failed', 0) > 0:
+                        result['port_mapping_warning'] = (
+                            f'{repair["failed"]} front port(s) could not be mapped after repair: '
+                            f'{", ".join(repair["failed_names"][:10])}'
+                        )
+
             logger.info(result['message'])
             
         except Exception as e:

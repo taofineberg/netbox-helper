@@ -480,6 +480,10 @@
             </div>
 
             <p style="font-size:0.78rem; color:var(--muted); margin:0 0 10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;">Template Types</p>
+            <div style="display:flex; gap:8px; margin:0 0 10px;">
+                <button type="button" class="filter-btn" onclick="setAllTemplateTypes(true)">Select All</button>
+                <button type="button" class="filter-btn" onclick="setAllTemplateTypes(false)">Select None</button>
+            </div>
             <div class="type-grid" id="typeGrid"></div>
 
             <button class="btn-accent" id="compareBtn" onclick="runCompare()">Compare Instances</button>
@@ -731,6 +735,13 @@ function toggleTypeItem(cb) {
 
 function selectedTypes() {
     return [...document.querySelectorAll('#typeGrid input:checked')].map(cb => cb.value);
+}
+
+function setAllTemplateTypes(checked) {
+    document.querySelectorAll('#typeGrid input[type="checkbox"]').forEach(cb => {
+        cb.checked = checked;
+        toggleTypeItem(cb);
+    });
 }
 
 // ============================================================

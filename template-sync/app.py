@@ -109,6 +109,27 @@ TEMPLATE_TYPES = {
         'match_key': 'model',
         'handler': 'module-types',
     },
+    'rack-types': {
+        'label': 'Rack Types',
+        'endpoint': 'dcim/rack-types',
+        'match_key': 'slug',
+        'compare_fields': ['name', 'slug', 'manufacturer', 'model', 'form_factor', 'width', 'u_height', 'is_frame', 'description', 'comments'],
+        'sync_fields':    ['name', 'slug', 'manufacturer', 'model', 'form_factor', 'width', 'u_height', 'is_frame', 'description', 'comments'],
+    },
+    'rack-roles': {
+        'label': 'Rack Roles',
+        'endpoint': 'dcim/rack-roles',
+        'match_key': 'slug',
+        'compare_fields': ['name', 'slug', 'color', 'description'],
+        'sync_fields':    ['name', 'slug', 'color', 'description'],
+    },
+    'reservations': {
+        'label': 'Reservations',
+        'endpoint': 'dcim/reservations',
+        'match_key': 'id',
+        'compare_fields': ['user', 'reservation', 'description'],
+        'sync_fields':    ['user', 'reservation', 'description'],
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -611,6 +632,16 @@ def sync_one(source_url, source_token, dest_url, dest_token, template_type, name
     dst = next((i for i in dst_items if i[match_key] == name), None)
 
     payload = {f: src[f] for f in sync_fields if f in src}
+
+    # Special handling for rack-types: resolve FK and normalize choice fields
+    if template_type == 'rack-types':
+        if 'manufacturer' in payload:
+            mfr_slug = _slug(src, 'manufacturer')
+            payload['manufacturer'] = _ensure_manufacturer(source_url, source_token, dest_url, dest_token, mfr_slug)
+        if 'form_factor' in payload:
+            payload['form_factor'] = _enum(src, 'form_factor')
+        if 'width' in payload:
+            payload['width'] = _enum(src, 'width')
 
     if dst:
         return nb_patch(dest_url, dest_token, endpoint, dst['id'], payload)

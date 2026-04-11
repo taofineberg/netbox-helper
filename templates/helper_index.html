@@ -1087,6 +1087,10 @@
             </div>
         </div>
         <p style="font-size:0.78rem; color:var(--muted); margin:0 0 10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;">Template Types</p>
+        <div style="display:flex; gap:8px; margin:0 0 10px;">
+            <button type="button" class="filter-btn" onclick="setAllTemplateTypes(true)">Select All</button>
+            <button type="button" class="filter-btn" onclick="setAllTemplateTypes(false)">Select None</button>
+        </div>
         <div class="type-grid" id="typeGrid"></div>
         <button class="btn-accent" id="compareBtn" onclick="runCompare()">Compare Instances</button>
         <div class="compare-progress" id="compareProgress">
@@ -1227,9 +1231,14 @@
             <div style="min-width:320px; flex:1;">
                 <label style="display:block; font-size:0.78rem; color:var(--muted); margin-bottom:6px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Destination Branch (Optional)</label>
                 <input type="text" id="srvCmpDestBranch" placeholder="e.g. site-sync-change-123" style="width:100%;"
-                       onchange="serverCompareOnBranchInputChange(this.value)">
+                       onchange="serverCompareOnBranchInputChange(this.value)"
+                       oninput="updateSrvCmpBranchWarning()">
                 <div style="margin-top:6px; font-size:0.74rem; color:var(--muted);">
                     Writes should target a branch and not main.
+                </div>
+                <!-- Warning when branch is empty -->
+                <div id="srvCmpNoBranchWarning" style="display:none; margin-top:10px; padding:10px; background:rgba(217,119,6,0.15); border:1px solid rgba(217,119,6,0.5); border-radius:6px; color:#d97706; font-size:0.78rem; line-height:1.4;">
+                    <strong>⚠ Warning:</strong> No branch specified — sync will write directly to the <strong>main branch</strong>. This is not recommended. Please enter a branch name above.
                 </div>
             </div>
         </div>
@@ -5894,6 +5903,13 @@ function buildTypeGrid() {
 function toggleTypeItem(cb) { cb.closest('.type-item').classList.toggle('checked', cb.checked); }
 function selectedTypes() { return [...document.querySelectorAll('#typeGrid input:checked')].map(cb => cb.value); }
 
+function setAllTemplateTypes(checked) {
+    document.querySelectorAll('#typeGrid input[type="checkbox"]').forEach(cb => {
+        cb.checked = checked;
+        toggleTypeItem(cb);
+    });
+}
+
 function renderInstances() {
     const list  = document.getElementById('instList');
     const empty = document.getElementById('instEmpty');
@@ -6404,6 +6420,16 @@ function serverCompareOnBranchInputChange(value) {
         localStorage.setItem('nbh_srvcmp_dest_branch_auto', '0');
     } catch(_) {}
     if (!raw || raw !== srvCmpAutoBranchValue) srvCmpAutoBranchValue = '';
+    updateSrvCmpBranchWarning();
+}
+
+function updateSrvCmpBranchWarning() {
+    const branchInput = document.getElementById('srvCmpDestBranch');
+    const warningBox = document.getElementById('srvCmpNoBranchWarning');
+    if (!branchInput || !warningBox) return;
+    const branchValue = String(branchInput.value || '').trim();
+    // Show warning only if branch is empty
+    warningBox.style.display = branchValue ? 'none' : 'block';
 }
 
 function serverCompareBranchFromFacility(facility) {
@@ -6727,6 +6753,7 @@ function serverCompareRenderResults() {
 
     section.style.display = 'block';
     if (errDiv) errDiv.style.display = 'none';
+    updateSrvCmpBranchWarning();  // Update warning when results are displayed
     tbody.innerHTML = '';
     srvCmpRows = {};
 
@@ -6997,8 +7024,14 @@ async function serverCompareRunSync(rowKeys, direction, skipConfirm = false) {
     const activeDestBranch = direction === 'to_dest' ? destBranchRaw : '';
     const directionText = direction === 'to_dest' ? `to ${destName}` : `back to source`;
     if (!skipConfirm) {
-        const branchMsg = activeDestBranch ? `\\nBranch: ${activeDestBranch}` : '';
-        const msg = `Sync ${syncRows.length} item(s) ${directionText}?${branchMsg}\\n\\nThis will create or update records on the target server.`;
+        let msg;
+        if (direction === 'to_dest' && !activeDestBranch) {
+            // Strong warning when syncing to dest without a branch
+            msg = `⚠ WARNING: Syncing to MAIN BRANCH (no branch specified)\n\nThis will sync ${syncRows.length} item(s) directly to the main branch on ${destName}.\n\nThis is NOT recommended. Please enter a branch name in the Destination Branch field first.\n\nContinue anyway?`;
+        } else {
+            const branchMsg = activeDestBranch ? `\nBranch: ${activeDestBranch}` : '';
+            msg = `Sync ${syncRows.length} item(s) ${directionText}?${branchMsg}\n\nThis will create or update records on the target server.`;
+        }
         if (!confirm(msg)) return;
     }
     if (skipped > 0) {
