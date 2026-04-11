@@ -2469,6 +2469,11 @@ def sync_components(src_url, src_token, dst_url, dst_token,
     for ctype in COMPONENT_TYPES:
         endpoint = ctype['endpoint']
 
+        # Device bay templates belong to device types only. When syncing module
+        # types, skip this endpoint to avoid creating invalid payloads.
+        if parent_field == 'module_type' and endpoint == 'dcim/device-bay-templates':
+            continue
+
         src_tmps = fetch_all(src_url, src_token, endpoint,
                              {f'{parent_field}_id': src_parent_id})
         dst_tmps = fetch_all(dst_url, dst_token, endpoint,
@@ -7816,6 +7821,82 @@ def server_compare_sync():
         return jsonify({'error': str(e)}), 400
 
     return jsonify({'results': results})
+
+
+@app.route('/sync/api/server-sync/images', methods=['POST'])
+@login_required
+def server_sync_images():
+    """Sync device/module type images from source to destination instance."""
+    try:
+        # Import sync_type_images functions
+        from sync_type_images import (
+            sync_type_images,
+            Instance,
+            api_get_all,
+            map_device_types,
+            map_module_types,
+            extract_image_fields,
+        )
+        
+        data = request.json or {}
+        source_instance_id = str(data.get('source_instance') or '').strip()
+        dest_instance_id = str(data.get('dest_instance') or '').strip()
+        sync_device_types = _to_bool(data.get('device_types', True))
+        sync_module_types = _to_bool(data.get('module_types', True))
+        dry_run = _to_bool(data.get('dry_run', False))
+        
+        if not source_instance_id or not dest_instance_id:
+            return jsonify({'error': 'source_instance and dest_instance are required'}), 400
+        
+        if source_instance_id == dest_instance_id:
+            return jsonify({'error': 'source and destination must be different'}), 400
+        
+        if not sync_device_types and not sync_module_types:
+            return jsonify({'error': 'At least one type category (device_types or module_types) must be selected'}), 400
+        
+        # Resolve source and destination instances
+        inst_map = {i['id']: i for i in load_instances()}
+        src = inst_map.get(source_instance_id)
+        dst = inst_map.get(dest_instance_id)
+        
+        if not src or not dst:
+            return jsonify({'error': 'One or both instances not found'}), 400
+        
+        # Decrypt tokens and create Instance objects
+        src_token = decrypt_token(src['token'])
+        dst_token = decrypt_token(dst['token'])
+        
+        src_inst = Instance(
+            url=src['url'],
+            token=src_token,
+            verify=_requests_verify_for_url(src['url']),
+        )
+        
+        dst_inst = Instance(
+            url=dst['url'],
+            token=dst_token,
+            verify=_requests_verify_for_url(dst['url']),
+        )
+        
+        # Run the sync
+        action_count = sync_type_images(
+            source=src_inst,
+            dest=dst_inst,
+            sync_device_types=sync_device_types,
+            sync_module_types=sync_module_types,
+            dry_run=dry_run
+        )
+        
+        return jsonify({
+            'error': None,
+            'total_count': action_count,
+            'dry_run': dry_run
+        })
+        
+    except Exception as e:
+        import traceback
+        error_msg = f"{str(e)}\n{traceback.format_exc()}"
+        return jsonify({'error': error_msg}), 500
 
 
 @app.route('/sync/api/site-sync/plan', methods=['POST'])
