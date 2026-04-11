@@ -708,6 +708,11 @@ def sync_components(src_url, src_token, dst_url, dst_token,
     for ctype in COMPONENT_TYPES:
         endpoint = ctype['endpoint']
 
+        # Device bay templates belong to device types only. When syncing module
+        # types, skip this endpoint to avoid creating invalid payloads.
+        if parent_field == 'module_type' and endpoint == 'dcim/device-bay-templates':
+            continue
+
         src_tmps = fetch_all(src_url, src_token, endpoint,
                              {f'{parent_field}_id': src_parent_id})
         dst_tmps = fetch_all(dst_url, dst_token, endpoint,

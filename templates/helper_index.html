@@ -1198,6 +1198,7 @@
             <button type="button" id="srvSyncViewObjectBtn" class="srvsync-view-btn active" onclick="serverSyncSetView('object')">Object Compare / Sync</button>
             <button type="button" id="srvSyncViewSiteBtn" class="srvsync-view-btn" onclick="serverSyncSetView('site')">Full Site Sync</button>
             <button type="button" id="srvSyncViewLegacyBtn" class="srvsync-view-btn" onclick="serverSyncSetView('legacy')">Template Sync</button>
+            <button type="button" id="srvSyncViewImageBtn" class="srvsync-view-btn" onclick="serverSyncSetView('images')">Image Sync</button>
         </div>
         <p class="srvsync-policy-note">
             Keep all workflows in one place. Existing functionality remains available, including legacy template sync.
@@ -1496,6 +1497,66 @@
             Existing Template Sync workflow moved here for convenience.
         </p>
         <div id="srvSyncLegacyMount"></div>
+    </div>
+
+    <div class="card" id="srvSyncImageSection" style="display:none;">
+        <p class="card-title">Image Sync</p>
+        <p style="font-size:0.82rem; color:var(--muted); margin:0 0 12px;">
+            Sync device and module type images from source to destination instance after template sync.
+        </p>
+
+        <div class="form-row" style="margin-bottom:10px;">
+            <div style="min-width:260px; flex:1;">
+                <label style="display:block; font-size:0.78rem; color:var(--muted); margin-bottom:6px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Source Instance</label>
+                <select id="srvImageSourceSelect" style="width:100%;" onchange="serverImageOnSourceChange()">
+                    <option value="">— Select source instance —</option>
+                </select>
+            </div>
+            <button class="swap-btn" title="Swap" onclick="serverImageSwapInstances()">⇄</button>
+            <div style="min-width:260px; flex:1;">
+                <label style="display:block; font-size:0.78rem; color:var(--muted); margin-bottom:6px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Destination Instance</label>
+                <select id="srvImageDestSelect" style="width:100%;" onchange="serverImageOnDestChange()">
+                    <option value="">— Select destination instance —</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-row" style="margin-bottom:10px;">
+            <label style="display:inline-flex; align-items:center; gap:8px; font-size:0.82rem; color:var(--muted);">
+                <input type="checkbox" id="srvImageSyncDeviceTypes" checked> Sync Device Type Images
+            </label>
+            <label style="display:inline-flex; align-items:center; gap:8px; font-size:0.82rem; color:var(--muted); margin-left:16px;">
+                <input type="checkbox" id="srvImageSyncModuleTypes" checked> Sync Module Type Images
+            </label>
+            <label style="display:inline-flex; align-items:center; gap:8px; font-size:0.82rem; color:var(--muted); margin-left:16px;">
+                <input type="checkbox" id="srvImageDryRun"> Dry run
+            </label>
+        </div>
+
+        <div style="margin-bottom:12px;">
+            <button class="btn-primary" id="srvImageSyncBtn" onclick="serverImageRunSync()" disabled>Sync Images</button>
+            <div id="srvImageInfo" style="font-size:0.78rem; color:var(--muted); margin-top:8px;">
+                Select both source and destination to begin.
+            </div>
+        </div>
+
+        <div class="compare-progress" id="srvImageProgress" style="display:none;">
+            <div class="cp-header">
+                <span class="cp-text" id="srvImageProgressText">Starting…</span>
+                <span class="cp-count" id="srvImageProgressCount"></span>
+            </div>
+            <div class="prog-track"><div class="prog-fill" id="srvImageProgressFill"></div></div>
+        </div>
+
+        <div id="srvImageResults" style="display:none; margin-top:16px; padding:12px; background:rgba(63,185,80,0.1); border:1px solid #238636; border-radius:6px; font-size:0.82rem;">
+            <div style="color:#3fb950; margin-bottom:8px;">✓ Sync completed successfully</div>
+            <div id="srvImageResultsDetail" style="color:var(--muted); font-size:0.78rem;"></div>
+        </div>
+
+        <div id="srvImageErrors" style="display:none; margin-top:16px; padding:12px; background:rgba(248,81,73,0.1); border:1px solid #f85149; border-radius:6px; font-size:0.82rem;">
+            <div style="color:#f85149;">✗ Sync failed</div>
+            <div id="srvImageErrorsDetail" style="color:var(--muted); font-size:0.78rem; margin-top:8px;"></div>
+        </div>
     </div>
 
 </div><!-- /tab-server-sync -->
@@ -2200,7 +2261,7 @@ function serverSyncEnsureLegacyMounted() {
 }
 
 function serverSyncSetView(view) {
-    const nextView = ['object', 'site', 'legacy'].includes(String(view || '').trim())
+    const nextView = ['object', 'site', 'legacy', 'images'].includes(String(view || '').trim())
         ? String(view || '').trim()
         : 'object';
     srvSyncActiveView = nextView;
@@ -2209,23 +2270,30 @@ function serverSyncSetView(view) {
     const btnObject = document.getElementById('srvSyncViewObjectBtn');
     const btnSite = document.getElementById('srvSyncViewSiteBtn');
     const btnLegacy = document.getElementById('srvSyncViewLegacyBtn');
+    const btnImages = document.getElementById('srvSyncViewImageBtn');
     if (btnObject) btnObject.classList.toggle('active', nextView === 'object');
     if (btnSite) btnSite.classList.toggle('active', nextView === 'site');
     if (btnLegacy) btnLegacy.classList.toggle('active', nextView === 'legacy');
+    if (btnImages) btnImages.classList.toggle('active', nextView === 'images');
 
     const compareCard = document.getElementById('srvCmpCompareCard');
     const resultsCard = document.getElementById('srvCmpResultsSection');
     const siteCard = document.getElementById('srvSiteSyncSection');
     const legacyCard = document.getElementById('srvSyncLegacySection');
+    const imageCard = document.getElementById('srvSyncImageSection');
     const hasObjectResults = !!document.querySelector('#srvCmpResultsBody tr');
 
-    if (compareCard) compareCard.style.display = nextView === 'legacy' ? 'none' : '';
+    if (compareCard) compareCard.style.display = (nextView === 'legacy' || nextView === 'images') ? 'none' : '';
     if (resultsCard) resultsCard.style.display = (nextView === 'object' && hasObjectResults) ? '' : 'none';
     if (siteCard) siteCard.style.display = nextView === 'site' ? '' : 'none';
     if (legacyCard) legacyCard.style.display = nextView === 'legacy' ? '' : 'none';
+    if (imageCard) imageCard.style.display = nextView === 'images' ? '' : 'none';
 
     if (nextView === 'site' && typeof serverSiteUpdateSelectionSummary === 'function') {
         serverSiteUpdateSelectionSummary();
+    }
+    if (nextView === 'images') {
+        serverImagePopulateSelects();
     }
 }
 
@@ -7998,6 +8066,166 @@ async function changeOwnPassword() {
     document.getElementById('curPwd').value  = '';
     document.getElementById('newPwd').value  = '';
     document.getElementById('confPwd').value = '';
+}
+
+// ============================================================
+// Server Image Sync Functions
+// ============================================================
+
+async function serverImagePopulateSelects() {
+    try {
+        const r = await fetch('/sync/api/instances');
+        if (!r.ok) throw new Error('Failed to fetch instances');
+        const d = await r.json();
+        const instances = d.instances || [];
+        
+        const sourceSelect = document.getElementById('srvImageSourceSelect');
+        const destSelect = document.getElementById('srvImageDestSelect');
+        
+        sourceSelect.innerHTML = '<option value="">— Select source instance —</option>';
+        destSelect.innerHTML = '<option value="">— Select destination instance —</option>';
+        
+        instances.forEach(inst => {
+            const opt1 = document.createElement('option');
+            opt1.value = inst.id || inst.name;
+            opt1.textContent = inst.name || inst.id;
+            sourceSelect.appendChild(opt1);
+            
+            const opt2 = document.createElement('option');
+            opt2.value = inst.id || inst.name;
+            opt2.textContent = inst.name || inst.id;
+            destSelect.appendChild(opt2);
+        });
+    } catch (err) {
+        console.error('Error populating image sync selects:', err);
+    }
+}
+
+function serverImageOnSourceChange() {
+    serverImageUpdateInfo();
+}
+
+function serverImageOnDestChange() {
+    serverImageUpdateInfo();
+}
+
+function serverImageSwapInstances() {
+    const sourceSelect = document.getElementById('srvImageSourceSelect');
+    const destSelect = document.getElementById('srvImageDestSelect');
+    const temp = sourceSelect.value;
+    sourceSelect.value = destSelect.value;
+    destSelect.value = temp;
+    serverImageUpdateInfo();
+}
+
+function serverImageUpdateInfo() {
+    const sourceSelect = document.getElementById('srvImageSourceSelect');
+    const destSelect = document.getElementById('srvImageDestSelect');
+    const syncBtn = document.getElementById('srvImageSyncBtn');
+    const infoDiv = document.getElementById('srvImageInfo');
+    
+    const sourceId = sourceSelect.value;
+    const destId = destSelect.value;
+    
+    if (!sourceId || !destId) {
+        syncBtn.disabled = true;
+        infoDiv.textContent = 'Select both source and destination to begin.';
+        return;
+    }
+    
+    if (sourceId === destId) {
+        syncBtn.disabled = true;
+        infoDiv.textContent = 'Source and destination must be different.';
+        infoDiv.style.color = 'var(--orange)';
+        return;
+    }
+    
+    syncBtn.disabled = false;
+    infoDiv.style.color = 'var(--muted)';
+    infoDiv.textContent = `Ready to sync images from ${sourceSelect.options[sourceSelect.selectedIndex].text} to ${destSelect.options[destSelect.selectedIndex].text}.`;
+}
+
+async function serverImageRunSync() {
+    const sourceSelect = document.getElementById('srvImageSourceSelect');
+    const destSelect = document.getElementById('srvImageDestSelect');
+    const deviceTypesCheckbox = document.getElementById('srvImageSyncDeviceTypes');
+    const moduleTypesCheckbox = document.getElementById('srvImageSyncModuleTypes');
+    const dryRunCheckbox = document.getElementById('srvImageDryRun');
+    const progressDiv = document.getElementById('srvImageProgress');
+    const progressText = document.getElementById('srvImageProgressText');
+    const progressCount = document.getElementById('srvImageProgressCount');
+    const progressFill = document.getElementById('srvImageProgressFill');
+    const resultsDiv = document.getElementById('srvImageResults');
+    const resultsDetail = document.getElementById('srvImageResultsDetail');
+    const errorsDiv = document.getElementById('srvImageErrors');
+    const errorsDetail = document.getElementById('srvImageErrorsDetail');
+    
+    const sourceId = sourceSelect.value;
+    const destId = destSelect.value;
+    const syncDeviceTypes = deviceTypesCheckbox.checked;
+    const syncModuleTypes = moduleTypesCheckbox.checked;
+    const isDryRun = dryRunCheckbox.checked;
+    
+    if (!sourceId || !destId) {
+        alert('Please select both source and destination instances.');
+        return;
+    }
+    
+    if (!syncDeviceTypes && !syncModuleTypes) {
+        alert('Please select at least one type category to sync.');
+        return;
+    }
+    
+    // Hide previous results
+    resultsDiv.style.display = 'none';
+    errorsDiv.style.display = 'none';
+    
+    // Show progress
+    progressDiv.style.display = '';
+    progressText.textContent = isDryRun ? 'Preview…' : 'Syncing…';
+    progressCount.textContent = '';
+    progressFill.style.width = '0%';
+    progressFill.classList.remove('done');
+    
+    try {
+        const r = await fetch('/sync/api/server-sync/images', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                source_instance: sourceId,
+                dest_instance: destId,
+                device_types: syncDeviceTypes,
+                module_types: syncModuleTypes,
+                dry_run: isDryRun,
+            }),
+        });
+        
+        if (!r.ok) {
+            const errorText = await r.text();
+            throw new Error(errorText || `HTTP ${r.status}`);
+        }
+        
+        const result = await r.json();
+        
+        progressFill.style.width = '100%';
+        progressFill.classList.add('done');
+        progressText.textContent = isDryRun ? 'Preview complete' : 'Sync complete';
+        
+        if (result.error) {
+            errorsDiv.style.display = '';
+            errorsDetail.textContent = result.error;
+        } else {
+            resultsDiv.style.display = '';
+            resultsDetail.innerHTML = `
+                <div>Total items synced: ${result.total_count || 0} (includes device/module type images and attachments)</div>
+                ${isDryRun ? '<div style="margin-top:8px; color:#d97706;">This was a dry-run preview. No changes were made.</div>' : ''}
+            `;
+        }
+    } catch (err) {
+        progressDiv.style.display = 'none';
+        errorsDiv.style.display = '';
+        errorsDetail.textContent = `Error: ${err.message}`;
+    }
 }
 </script>
 <footer class="site-footer">Develpoyed by ITG | Tao Fineberg</footer>
