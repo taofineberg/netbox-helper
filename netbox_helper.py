@@ -2208,7 +2208,8 @@ def normalize_component(tmpl, ctype_cfg):
 
 
 def build_component_payload(tmpl, ctype_cfg, parent_id, parent_field,
-                            rear_port_map=None, power_port_map=None):
+                            rear_port_map=None, power_port_map=None,
+                            src_rp_id_map=None):
     payload = {parent_field: parent_id}
     for field in ctype_cfg['payload_fields']:
         if field == 'type':
@@ -2221,10 +2222,19 @@ def build_component_payload(tmpl, ctype_cfg, parent_id, parent_field,
             payload[field] = tmpl.get(field)
 
     if ctype_cfg.get('resolve_rear_port') and rear_port_map:
+        # NetBox < 4.x: rear_port is an inline object {id, name, ...}
         rp_name = _name(tmpl, 'rear_port')
+        rp_position = tmpl.get('rear_port_position', 1)
+        # NetBox 4.x: changed to rear_ports array [{position, rear_port: <id>, rear_port_position}]
+        if not rp_name and tmpl.get('rear_ports') and src_rp_id_map:
+            entry = tmpl['rear_ports'][0] if tmpl['rear_ports'] else None
+            if entry:
+                src_rp_id = entry.get('rear_port')
+                rp_name = src_rp_id_map.get(src_rp_id)
+                rp_position = entry.get('rear_port_position', 1)
         if rp_name and rp_name in rear_port_map:
             payload['rear_port'] = rear_port_map[rp_name]
-            payload['rear_port_position'] = tmpl.get('rear_port_position', 1)
+            payload['rear_port_position'] = rp_position
 
     if ctype_cfg.get('resolve_power_port') and power_port_map:
         pp_name = _name(tmpl, 'power_port')
@@ -2465,6 +2475,9 @@ def sync_components(src_url, src_token, dst_url, dst_token,
     errors = []
     rear_port_map  = {}
     power_port_map = {}
+    # Persists across loop iterations: src rear-port-template ID → name.
+    # Built during 'rear-port-templates' pass; consumed during 'front-port-templates' pass.
+    src_rp_id_map  = {}
 
     for ctype in COMPONENT_TYPES:
         endpoint = ctype['endpoint']
@@ -2483,6 +2496,7 @@ def sync_components(src_url, src_token, dst_url, dst_token,
 
         if endpoint == 'dcim/rear-port-templates':
             rear_port_map.update({t['name']: t['id'] for t in dst_tmps})
+            src_rp_id_map = {t['id']: t['name'] for t in src_tmps}
         if endpoint == 'dcim/power-port-templates':
             power_port_map.update({t['name']: t['id'] for t in dst_tmps})
 
@@ -2492,6 +2506,7 @@ def sync_components(src_url, src_token, dst_url, dst_token,
                 payload = build_component_payload(
                     src_tmpl, ctype, dst_parent_id, parent_field,
                     rear_port_map=rear_port_map, power_port_map=power_port_map,
+                    src_rp_id_map=src_rp_id_map,
                 )
                 if name in dst_name_map:
                     result = nb_patch(dst_url, dst_token, endpoint,
@@ -2506,6 +2521,41 @@ def sync_components(src_url, src_token, dst_url, dst_token,
 
             except Exception as e:
                 errors.append(f"{endpoint}/{name}: {e}")
+
+        # NetBox 4.x removed the writable 'rear_port' field on front-port-templates.
+        # Associations must be set by PATCHing each rear-port-template with 'front_ports'.
+        if endpoint == 'dcim/front-port-templates' and src_rp_id_map:
+            dst_fp_tmps = fetch_all(dst_url, dst_token, endpoint,
+                                    {f'{parent_field}_id': dst_parent_id})
+            dst_fp_name_to_id = {t['name']: t['id'] for t in dst_fp_tmps}
+            rp_fp_patches = {}  # dst_rp_id → list of front_ports entries
+            for src_fp in src_tmps:
+                fp_name = src_fp['name']
+                dst_fp_id = dst_fp_name_to_id.get(fp_name)
+                if dst_fp_id is None:
+                    continue
+                for entry in src_fp.get('rear_ports', []):
+                    src_rp_id = entry.get('rear_port')
+                    rp_name = src_rp_id_map.get(src_rp_id)
+                    if not rp_name:
+                        continue
+                    dst_rp_id = rear_port_map.get(rp_name)
+                    if dst_rp_id is None:
+                        continue
+                    rp_fp_patches.setdefault(dst_rp_id, []).append({
+                        'front_port': dst_fp_id,
+                        'front_port_position': entry.get('position', 1),
+                        'rear_port_position': entry.get('rear_port_position', 1),
+                    })
+            for dst_rp_id, fp_list in rp_fp_patches.items():
+                try:
+                    # NetBox 4.x PATCH on nested lists appends; clear first, then set.
+                    nb_patch(dst_url, dst_token, 'dcim/rear-port-templates',
+                             dst_rp_id, {'front_ports': []})
+                    nb_patch(dst_url, dst_token, 'dcim/rear-port-templates',
+                             dst_rp_id, {'front_ports': fp_list})
+                except Exception as e:
+                    errors.append(f"dcim/rear-port-templates/{dst_rp_id} association: {e}")
 
     return errors
 
