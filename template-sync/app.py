@@ -6,6 +6,8 @@ import hmac
 import hashlib
 import base64
 import secrets as _secrets
+import time
+import threading
 import requests
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
@@ -41,6 +43,74 @@ APP_USERNAME = os.getenv('APP_USERNAME', 'admin')
 APP_PASSWORD = os.getenv('APP_PASSWORD', 'admin')
 
 INSTANCES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instances.json')
+
+# ---------------------------------------------------------------------------
+# Login rate limiting
+# ---------------------------------------------------------------------------
+LOGIN_MAX_ATTEMPTS   = max(1, int(os.getenv('NBH_LOGIN_MAX_ATTEMPTS',   '5')))
+LOGIN_WINDOW_SECONDS = max(60, int(os.getenv('NBH_LOGIN_WINDOW_SECONDS', '300')))
+LOGIN_LOCKOUT_SECONDS = max(60, int(os.getenv('NBH_LOGIN_LOCKOUT_SECONDS', '900')))
+
+_login_attempts: dict = {}
+_login_attempts_lock = threading.Lock()
+
+
+def _login_client_ip():
+    return (
+        request.headers.get('X-Forwarded-For', '').split(',')[0].strip()
+        or request.remote_addr
+        or 'unknown'
+    )
+
+
+def _login_rate_limit_key(username):
+    return f"{_login_client_ip()}::{str(username or '').strip().lower()}"
+
+
+def _cleanup_login_attempts(now_ts):
+    stale = [
+        key for key, state in _login_attempts.items()
+        if max(float(state.get('last_failed', 0)), float(state.get('locked_until', 0)))
+           + LOGIN_LOCKOUT_SECONDS + LOGIN_WINDOW_SECONDS < now_ts
+    ]
+    for key in stale:
+        _login_attempts.pop(key, None)
+
+
+def _is_login_locked(username):
+    now_ts = time.time()
+    key = _login_rate_limit_key(username)
+    with _login_attempts_lock:
+        _cleanup_login_attempts(now_ts)
+        state = _login_attempts.get(key) or {}
+        locked_until = float(state.get('locked_until', 0))
+        if locked_until > now_ts:
+            return True, int(locked_until - now_ts)
+    return False, 0
+
+
+def _register_login_failure(username):
+    now_ts = time.time()
+    key = _login_rate_limit_key(username)
+    with _login_attempts_lock:
+        _cleanup_login_attempts(now_ts)
+        state = _login_attempts.get(key) or {'failures': [], 'locked_until': 0.0, 'last_failed': 0.0}
+        failures = [
+            float(ts) for ts in (state.get('failures') or [])
+            if now_ts - float(ts) <= LOGIN_WINDOW_SECONDS
+        ]
+        failures.append(now_ts)
+        state['failures'] = failures
+        state['last_failed'] = now_ts
+        if len(failures) >= LOGIN_MAX_ATTEMPTS:
+            state['locked_until'] = now_ts + LOGIN_LOCKOUT_SECONDS
+        _login_attempts[key] = state
+
+
+def _clear_login_failures(username):
+    key = _login_rate_limit_key(username)
+    with _login_attempts_lock:
+        _login_attempts.pop(key, None)
 
 # ---------------------------------------------------------------------------
 # Template type definitions
@@ -896,10 +966,17 @@ def sync_module_type(src_url, src_token, dst_url, dst_token, model):
 def login():
     error = None
     if request.method == 'POST':
-        if (request.form.get('username') == APP_USERNAME and
+        username = request.form.get('username', '').strip()
+        locked, wait_s = _is_login_locked(username)
+        if locked:
+            error = f'Too many failed login attempts. Try again in {wait_s} seconds.'
+            return render_template('login.html', error=error), 429
+        if (username == APP_USERNAME and
                 request.form.get('password') == APP_PASSWORD):
+            _clear_login_failures(username)
             session['logged_in'] = True
             return redirect(url_for('index'))
+        _register_login_failure(username)
         error = 'Invalid credentials. Please try again.'
     return render_template('login.html', error=error)
 
