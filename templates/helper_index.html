@@ -2789,7 +2789,8 @@ async function nbsrcGenerate() {
         });
         const d = await r.json();
         if (d.error) throw new Error(d.error);
-        nbsrcInfoLine.textContent = `Generated ${d.filename} (${d.rows} rows, ${d.cols} cols) from ${d.source_server_name}.`;
+        nbsrcInfoLine.innerHTML = `Generated ${d.filename} (${d.rows} rows, ${d.cols} cols) from ${d.source_server_name}. ` +
+            `<a href="${d.download_url}" download style="color:var(--accent);">Download</a>`;
         toast(`Generated ${d.filename}`, 'ok');
     } catch (err) {
         nbsrcInfoLine.textContent = `Generate failed: ${err.message}`;
